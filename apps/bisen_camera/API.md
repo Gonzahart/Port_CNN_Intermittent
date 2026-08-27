@@ -36,7 +36,7 @@ typedef enum {
 | `wl_stop_requested()` | `int` | |
 | `wl_resume()` | — | Clears the request. Nothing is re-prepared. |
 | `wl_result()` | `int` | The digit. Valid only after `COMPLETE`; −1 otherwise. |
-| `wl_reset()` | — | Abandons the frame *and* retires the in-flight scan record, so the next `wl_step()` genuinely starts over rather than resuming. |
+| `wl_reset()` | — | Abandons the frame's SRAM scan/inference state so the next `wl_step()` genuinely starts over. The external storage owner must separately retire any durable checkpoint. |
 | `wl_current_phase()` | `wl_phase_t` | After a successful `wl_restore_commit()` this reports the restored phase — how you confirm the restore was adopted. |
 
 `COMPLETE` outranks a pending stop: if you request a stop just as the frame
@@ -112,9 +112,11 @@ The AMAP4PEVB build defaults to the physical divider on J9.8/GPIO16/ADCSE3, so
 check its return value and use a timed polling fallback if arming fails;
 treating a refusal as armed produces a wait that never ends.
 
-With `phase == WL_PHASE_IDLE` or `dirty == 0` there is nothing to write.
-**Completion is not a persistence event** — a finished frame has no progress
-that needs recovering.
+With `phase == WL_PHASE_IDLE` or `dirty == 0` there is no recovery payload to
+write. **Completion is not a recovery-payload event** — a finished frame has no
+progress that needs recovering. The bundled storage owner may write a 16-byte
+sequence tombstone only when needed to prevent an older recovery record from
+resurrecting that already-completed job.
 
 ## Restore
 
@@ -197,25 +199,23 @@ attached. It found three real defects on its first run; see the README.
 ## What is in the build but not part of the API
 
 `src/power_policy.*`, `src/energy_source.*`, `src/adc_shared.*` and `src/bisen/`
-implement the
-self-driving variant of this application, where it samples a supply and decides
-for itself. **In this build that decision path is compiled out**
-(`WL_EXTERNAL_DRIVER=1` in `module.mk`). They are present because the two
-variants share one source tree; they are not something you need to call,
-configure, or avoid.
+provide the policy and hardware observations used by the external scheduler in
+`src/bisen_camera.cc`. `WL_EXTERNAL_DRIVER=1` disables the older policy loops
+inside `scan.c` and `infer.c`; it does not disable BISen decisions. The app-level
+scheduler is the sole owner of sampling, stopping, waiting, checkpointing, and
+resuming.
 
-`src/ckpt.*` and `src/ckpt_mram.c` are the reference checkpoint library. They
-**are** linked — `ckpt_init()` reads MRAM at boot and the scan calls
-`ckpt_scan_invalidate()`. Its save paths are never called, so no checkpoint is
-ever written; the one program `ckpt_scan_invalidate()` can issue happens only
-when a stale scan record from another build is on media. Measured writes on a
-clean board: zero. This does not constrain your own storage layer in any way —
-it is a different slot region and a different code path.
+`src/ckpt.*` and `src/ckpt_mram.c` implement the app's active two-slot recovery
+store. The external scheduler writes only after a work-to-wait transition with
+new coherent progress. It records per-job runtime and committed generations in
+SRAM so repeated low samples with no new work do not program MRAM. Completion
+writes one 16-byte retirement tombstone only when that job has a live recovery
+record. The newest sequence always wins; scan and inference restore both fall
+back only when the global record order says the older slot still belongs to the
+same resumable stream.
 
-`WL_SELFTEST_EVERY` in `src/cam_lenet2.cc` is a stand-in driver that requests a
-stop every 37 steps, reads `wl_state()`, and resumes — proving the path works
-end to end without any storage. **Replace that loop with yours.** Set it to 0 to
-disable.
+`src/wl_apitest.c` remains the bounded workload-contract test. The production
+driver is `src/bisen_camera.cc`.
 
 `src/energy_source.*` selects where an energy observation comes from. The
 AMAP4PEVB build selects the physical J9.8/GPIO16 divider, read by the same

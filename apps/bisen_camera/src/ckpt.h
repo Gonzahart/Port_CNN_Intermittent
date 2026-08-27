@@ -28,9 +28,10 @@
 // through a save, that slot's header is either absent or stale, and the
 // previous slot is still intact and still restorable.
 //
-// Endurance is not a concern in this regime: the Apollo4 datasheet gives
-// 100,000 program cycles (section 29.5, table 30), and a save happens once per
-// power failure rather than once per tile.
+// Endurance is controlled by policy rather than assumed here. A save is
+// expected only after new coherent progress crosses into the checkpoint band;
+// the device backend exposes both high-level writes and actual HAL program
+// operations so that claim can be checked on hardware.
 //
 #ifndef CKPT_H
 #define CKPT_H
@@ -102,12 +103,15 @@ void ckpt_dev_init(void);
 int ckpt_dev_write(uint32_t slot, uint32_t off, const void *src, uint32_t len);
 int ckpt_dev_read(uint32_t slot, uint32_t off, void *dst, uint32_t len);
 
-// Wear counters, so you can watch what is actually being programmed rather than
-// assume. Maintained by the device backend only -- writes on the host cost
-// nothing, so these stay zero there. Endurance is 100,000 program cycles per
-// cell, so `programs` is the number that matters, not `bytes`.
+// Wear/energy counters. `g_ckpt_dev_programs` counts calls into the backend;
+// one such call can be split into several 64-byte HAL operations. The HAL
+// counters expose that lower level explicitly. All count attempted operations;
+// successes are reported separately.
 extern uint32_t g_ckpt_dev_programs;
 extern uint32_t g_ckpt_dev_bytes;
+extern uint32_t g_ckpt_dev_hal_program_calls;
+extern uint32_t g_ckpt_dev_hal_program_successes;
+extern uint32_t g_ckpt_dev_program_units;
 
 // API
 
@@ -121,9 +125,25 @@ int ckpt_save(nn_ctx_t *c);
 // passed its CRC, 0 if there is nothing to resume.
 int ckpt_restore(nn_ctx_t *c);
 
-// Invalidate both slots -- call once an inference has been consumed, so a
-// later reset does not resume finished work.
+// Header of the record that the most recent successful inference restore
+// actually accepted after CRC checking and any read-only fallback. Returns 1
+// when available. This is diagnostic metadata; it never changes slot state.
+int ckpt_last_restore(ckpt_hdr_t *out);
+
+// Logically retire the newest checkpoint -- call once an inference has been
+// consumed, so a later reset does not resume finished work. This writes one
+// sequence-ordered tombstone rather than clearing two headers: if power fails
+// before the tombstone commits, the previous checkpoint remains recoverable;
+// once it commits, every older record is stale by definition.
 void ckpt_clear(void);
+
+// Explicit retirement API for an external scheduler. Returns 1 if a tombstone
+// was committed, 0 if there was nothing live to retire (or the newest record
+// was already retired), and -1 on a storage failure.
+int ckpt_retire(void);
+
+// True only when the newest committed record is a retirement tombstone.
+int ckpt_newest_is_retired(void);
 
 // Read a slot's header without disturbing anything. Returns 1 if the magic
 // matches, i.e. something was actually committed there. Diagnostic only: it
@@ -157,6 +177,7 @@ uint32_t ckpt_write_us(nn_ctx_t *c);
 // every pixel; MRAM is programmed ONCE, when power is about to fail. Marking
 // each pixel into MRAM instead would be 1024 program cycles per frame, which
 // spends the part's 100,000-cycle endurance in about a hundred frames.
+#define CKPT_RETIRED_LAYER 0xFFFEu
 #define CKPT_SCAN_LAYER    0xFFFFu
 #define CKPT_SCAN_PIXEL_SZ 2u        /* frame elements are uint16_t */
 

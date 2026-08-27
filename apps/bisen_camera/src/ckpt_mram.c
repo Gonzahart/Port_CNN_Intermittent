@@ -17,6 +17,9 @@
 
 uint32_t g_ckpt_dev_programs;
 uint32_t g_ckpt_dev_bytes;
+uint32_t g_ckpt_dev_hal_program_calls;
+uint32_t g_ckpt_dev_hal_program_successes;
+uint32_t g_ckpt_dev_program_units;
 
 #if CKPT_USE_MRAM
 
@@ -44,10 +47,15 @@ static uintptr_t slot_addr(uint32_t slot, uint32_t off) {
 }
 
 static int program_words(uint32_t *src, uintptr_t dst, uint32_t words) {
+    g_ckpt_dev_hal_program_calls++;
+    g_ckpt_dev_program_units += words / (CKPT_ALIGN / sizeof(uint32_t));
     const uint32_t irq_state = am_hal_interrupt_master_disable();
     const int status = am_hal_mram_main_program(
         AM_HAL_MRAM_PROGRAM_KEY, src, (uint32_t *)dst, words);
     am_hal_interrupt_master_set(irq_state);
+    if (status == AM_HAL_STATUS_SUCCESS) {
+        g_ckpt_dev_hal_program_successes++;
+    }
     return status;
 }
 

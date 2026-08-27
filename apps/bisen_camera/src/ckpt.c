@@ -5,6 +5,8 @@
 
 static uint32_t g_seq;        // sequence number of the newest valid checkpoint
 static uint32_t g_next_slot;  // slot ckpt_save will write next
+static ckpt_hdr_t g_last_restore_hdr;
+static int g_last_restore_valid;
 
 static uint32_t crc32(const void *data, uint32_t len, uint32_t crc) {
     const uint8_t *p = (const uint8_t *)data;
@@ -63,22 +65,19 @@ static int read_padded(uint32_t slot, uint32_t off, void *dst, uint32_t len,
 static int read_hdr_any(uint32_t slot, ckpt_hdr_t *h) {
     if (ckpt_dev_read(slot, 0, h, CKPT_HDR_SZ) != 0) return 0;
     if (h->magic != CKPT_MAGIC) return 0;
-    return h->layer <= NN_NUM_LAYERS || h->layer == CKPT_SCAN_LAYER;
-}
-
-// Inference records only. A scan record's layer field is deliberately out of
-// range, so this rejects it without needing to know it exists.
-static int read_hdr(uint32_t slot, ckpt_hdr_t *h) {
-    return read_hdr_any(slot, h) && h->layer <= NN_NUM_LAYERS;
+    return h->layer <= NN_NUM_LAYERS || h->layer == CKPT_SCAN_LAYER ||
+           h->layer == CKPT_RETIRED_LAYER;
 }
 
 // Newest committed record of either kind. The sequence number is shared across
 // both, so "newest" is meaningful between them and the two phases cannot both
 // claim to be current.
-static int newest_any(ckpt_hdr_t *out, uint32_t *slot_out) {
+static int newest_any_except(ckpt_hdr_t *out, uint32_t *slot_out,
+                             uint32_t ignored_slots) {
     int found = 0;
     uint32_t best_seq = 0;
     for (uint32_t s = 0; s < CKPT_NUM_SLOTS; s++) {
+        if (ignored_slots & (1u << s)) continue;
         ckpt_hdr_t h;
         if (read_hdr_any(s, &h) && (!found || h.seq > best_seq)) {
             found = 1;
@@ -88,6 +87,10 @@ static int newest_any(ckpt_hdr_t *out, uint32_t *slot_out) {
         }
     }
     return found;
+}
+
+static int newest_any(ckpt_hdr_t *out, uint32_t *slot_out) {
+    return newest_any_except(out, slot_out, 0u);
 }
 
 void ckpt_init(void) {
@@ -234,36 +237,19 @@ int ckpt_save(nn_ctx_t *c) {
 }
 
 int ckpt_restore(nn_ctx_t *c) {
-    // A newer scan record means power failed before the frame was complete, so
-    // there is no inference to resume -- and any inference record still on
-    // media belongs to an earlier frame. Refuse rather than restore stale work.
-    {
-        ckpt_hdr_t newest;
-        uint32_t newest_slot;
-        if (newest_any(&newest, &newest_slot) &&
-            newest.layer == CKPT_SCAN_LAYER) {
+    // Always follow the global sequence order. A newer scan or retirement
+    // record makes every older inference stale. If the newest inference fails
+    // CRC, exclude it in RAM and re-evaluate the remaining record; restore
+    // itself never programs MRAM.
+    g_last_restore_valid = 0;
+    uint32_t ignored_slots = 0u;
+    for (;;) {
+        ckpt_hdr_t bh = {0, 0, 0, 0, 0};
+        uint32_t best = 0;
+        if (!newest_any_except(&bh, &best, ignored_slots) ||
+            bh.layer > NN_NUM_LAYERS) {
             return 0;
         }
-    }
-    // Try slots newest first; a slot that fails its CRC is skipped, so a torn
-    // write falls back to the previous good checkpoint rather than failing.
-    for (;;) {
-        int best = -1;
-        uint32_t best_seq = 0;
-        ckpt_hdr_t bh = {0, 0, 0, 0, 0};   // only read when best >= 0; the
-                                           // initialiser is for the compiler,
-                                           // which cannot see that
-
-
-        for (uint32_t s = 0; s < CKPT_NUM_SLOTS; s++) {
-            ckpt_hdr_t h;
-            if (read_hdr(s, &h) && (best < 0 || h.seq > best_seq)) {
-                best = (int)s;
-                best_seq = h.seq;
-                bh = h;
-            }
-        }
-        if (best < 0) return 0;
 
         c->layer = bh.layer;
         c->unit = bh.unit;
@@ -272,15 +258,15 @@ int ckpt_restore(nn_ctx_t *c) {
         nn_live(c, &lv);
 
         uint32_t off = CKPT_HDR_SZ;
-        int ok = (read_padded((uint32_t)best, off, lv.in, lv.in_len, &off) == 0);
+        int ok = (read_padded(best, off, lv.in, lv.in_len, &off) == 0);
         if (ok && lv.out_len) {
-            ok = (read_padded((uint32_t)best, off, lv.out, lv.out_len, &off) == 0);
+            ok = (read_padded(best, off, lv.out, lv.out_len, &off) == 0);
         }
         const int drop = acc_drop_of(bh.layer);
 
         if (ok && lv.acc_len) {
             if (drop == 0) {
-                ok = (read_padded((uint32_t)best, off, lv.acc, lv.acc_len,
+                ok = (read_padded(best, off, lv.acc, lv.acc_len,
                                   &off) == 0);
             } else {
                 const uint32_t n = lv.acc_len / sizeof(int32_t);
@@ -298,7 +284,7 @@ int ckpt_restore(nn_ctx_t *c) {
                         uint32_t want = (n - i) * bpa;
                         if (want > sizeof(buf)) want = sizeof(buf);
                         want = (want + CKPT_ALIGN - 1) & ~(uint32_t)(CKPT_ALIGN - 1);
-                        if (ckpt_dev_read((uint32_t)best, off, buf, want) != 0) {
+                        if (ckpt_dev_read(best, off, buf, want) != 0) {
                             ok = 0; break;
                         }
                         off += want; have = want; take = 0;
@@ -329,34 +315,57 @@ int ckpt_restore(nn_ctx_t *c) {
                 // covers the reconstructed values, so integrity is still checked
                 // on exactly what the resume will use.
                 g_seq = bh.seq;
-                g_next_slot = ((uint32_t)best + 1) % CKPT_NUM_SLOTS;
+                g_next_slot = (best + 1) % CKPT_NUM_SLOTS;
+                g_last_restore_hdr = bh;
+                g_last_restore_valid = 1;
                 return 1;
             }
         }
 
-        // Bad slot: blank its header and look again.
-        ckpt_hdr_t dead;
-        for (uint32_t i = 0; i < sizeof(dead) / 4; i++) ((uint32_t *)&dead)[i] = 0;
-        ckpt_dev_write((uint32_t)best, 0, &dead, CKPT_HDR_SZ);
+        // Bad slot: ignore it in RAM and look again. Restore is deliberately
+        // read-only: boot-time CRC fallback must not spend MRAM endurance or
+        // attempt a program before VCAP has been qualified. The next real
+        // checkpoint naturally overwrites this inactive slot.
+        ignored_slots |= 1u << best;
     }
 }
 
-void ckpt_clear(void) {
-    ckpt_hdr_t dead;
-    for (uint32_t i = 0; i < sizeof(dead) / 4; i++) ((uint32_t *)&dead)[i] = 0;
+int ckpt_last_restore(ckpt_hdr_t *out) {
+    if (!g_last_restore_valid || out == 0) return 0;
+    *out = g_last_restore_hdr;
+    return 1;
+}
 
-    for (uint32_t s = 0; s < CKPT_NUM_SLOTS; s++) {
-        // Skip slots that are already invalid. This is called after EVERY
-        // completed inference, so on a real NVM backend an unconditional write
-        // would burn an endurance cycle per frame forever -- about 100,000
-        // cycles in ~3 days at one frame every 2.5 s, wearing out the header
-        // cells while achieving nothing. Reads are free; writes are not.
-        ckpt_hdr_t h;
-        if (ckpt_dev_read(s, 0, &h, CKPT_HDR_SZ) == 0 && h.magic == 0) continue;
-        ckpt_dev_write(s, 0, &dead, CKPT_HDR_SZ);
+void ckpt_clear(void) {
+    (void)ckpt_retire();
+}
+
+int ckpt_newest_is_retired(void) {
+    ckpt_hdr_t h = {0, 0, 0, 0, 0};
+    uint32_t slot = 0;
+    return newest_any(&h, &slot) && h.layer == CKPT_RETIRED_LAYER;
+}
+
+int ckpt_retire(void) {
+    ckpt_hdr_t newest = {0, 0, 0, 0, 0};
+    uint32_t newest_slot = 0;
+    if (!newest_any(&newest, &newest_slot) ||
+        newest.layer == CKPT_RETIRED_LAYER) {
+        return 0;
     }
-    g_seq = 0;
-    g_next_slot = 0;
+
+    ckpt_hdr_t retired;
+    retired.magic = CKPT_MAGIC;
+    retired.seq = g_seq + 1u;
+    retired.layer = CKPT_RETIRED_LAYER;
+    retired.unit = 0u;
+    retired.crc = 0u;
+
+    const uint32_t slot = g_next_slot;
+    if (ckpt_dev_write(slot, 0, &retired, CKPT_HDR_SZ) != 0) return -1;
+    g_seq = retired.seq;
+    g_next_slot = (slot + 1u) % CKPT_NUM_SLOTS;
+    return 1;
 }
 
 // ---------------------------------------------------------------------------
@@ -408,36 +417,36 @@ int ckpt_scan_invalidate(void) {
     ckpt_hdr_t h = {0, 0, 0, 0, 0};
     uint32_t slot = 0;
     if (!newest_any(&h, &slot) || h.layer != CKPT_SCAN_LAYER) return 0;
-
-    ckpt_hdr_t dead;
-    for (uint32_t i = 0; i < sizeof(dead) / 4; i++) ((uint32_t *)&dead)[i] = 0;
-    if (ckpt_dev_write(slot, 0, &dead, CKPT_HDR_SZ) != 0) return 0;
-
-    // g_next_slot is deliberately NOT touched. ckpt_save_scan already advanced
-    // it to the other slot, and pointing it back here would undo the
-    // alternation: every save would land on the same slot, leaving a torn write
-    // with no intact predecessor to fall back on and concentrating all wear on
-    // one set of cells. g_seq is left alone too -- sequence numbers must keep
-    // increasing or a later record could look older than one already on media.
-    return 1;
+    return ckpt_retire() == 1 ? 1 : 0;
 }
 
 int ckpt_restore_scan(void *frame, uint32_t cap, uint16_t *next_pixel) {
-    // Initialised for the compiler, which cannot see that newest_any fills it
-    // whenever it returns non-zero. Same reason as the one in ckpt_restore.
-    ckpt_hdr_t h = {0, 0, 0, 0, 0};
-    uint32_t slot = 0;
-    if (!newest_any(&h, &slot) || h.layer != CKPT_SCAN_LAYER) return 0;
+    // Same global-order fallback rule as inference restore. A tombstone or an
+    // inference record newer than the remaining scan slot ends the search;
+    // neither may be skipped to resurrect an older camera frame.
+    uint32_t ignored_slots = 0u;
+    for (;;) {
+        ckpt_hdr_t h = {0, 0, 0, 0, 0};
+        uint32_t slot = 0;
+        if (!newest_any_except(&h, &slot, ignored_slots) ||
+            h.layer != CKPT_SCAN_LAYER) {
+            return 0;
+        }
 
-    const uint32_t bytes = (uint32_t)h.unit * CKPT_SCAN_PIXEL_SZ;
-    if (bytes > cap) return 0;
+        const uint32_t bytes = (uint32_t)h.unit * CKPT_SCAN_PIXEL_SZ;
+        int ok = bytes <= cap;
+        uint32_t off = CKPT_HDR_SZ;
+        if (ok && bytes) {
+            ok = (read_padded(slot, off, frame, bytes, &off) == 0);
+        }
+        if (ok) ok = (crc32(frame, bytes, 0) == h.crc);
+        if (ok) {
+            if (next_pixel) *next_pixel = h.unit;
+            g_seq = h.seq;
+            g_next_slot = (slot + 1u) % CKPT_NUM_SLOTS;
+            return 1;
+        }
 
-    uint32_t off = CKPT_HDR_SZ;
-    if (bytes && read_padded(slot, off, frame, bytes, &off) != 0) return 0;
-    if (crc32(frame, bytes, 0) != h.crc) return 0;
-
-    if (next_pixel) *next_pixel = h.unit;
-    g_seq = h.seq;
-    g_next_slot = (slot + 1) % CKPT_NUM_SLOTS;
-    return 1;
+        ignored_slots |= 1u << slot;
+    }
 }

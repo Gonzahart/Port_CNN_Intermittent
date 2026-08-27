@@ -7,6 +7,7 @@
 #include "am_bsp.h"
 #include "am_mcu_apollo.h"
 #include "am_util.h"
+#include "adc_shared.h"
 #include "ckpt.h"
 #include "energy_source.h"
 #include "infer.h"
@@ -25,7 +26,7 @@
 #define BISEN_CAMERA_ENABLE_MRAM 1
 #endif
 #ifndef BISEN_CAMERA_MAX_CHECKPOINTS
-#define BISEN_CAMERA_MAX_CHECKPOINTS 4
+#define BISEN_CAMERA_MAX_CHECKPOINTS 0
 #endif
 #ifndef BISEN_CAMERA_WAIT_US
 #define BISEN_CAMERA_WAIT_US 250000u
@@ -45,16 +46,29 @@
 #ifndef WL_APITEST
 #define WL_APITEST 0
 #endif
+#ifndef BISEN_CAMERA_VCAP_CALIBRATION_MODE
+#define BISEN_CAMERA_VCAP_CALIBRATION_MODE 0
+#endif
+#ifndef BISEN_CAMERA_VCAP_CALIBRATION_SAMPLES
+#define BISEN_CAMERA_VCAP_CALIBRATION_SAMPLES 32u
+#endif
+#if BISEN_CAMERA_VCAP_CALIBRATION_SAMPLES < 2
+#error "VCAP calibration needs at least two ADC samples per DMM setpoint"
+#endif
 
 namespace {
 
 volatile int g_button0_pressed;
 uint32_t g_checkpoint_attempts;
 uint32_t g_checkpoint_successes;
+uint32_t g_checkpoint_retirements;
 bool g_checkpoint_failure_latched;
-bool g_last_saved_valid;
-wl_phase_t g_last_saved_phase;
-uint32_t g_last_saved_position;
+bool g_job_tracking_active;
+bool g_job_has_durable_checkpoint;
+bool g_checkpoint_edge_armed;
+uint32_t g_job_generation;
+uint32_t g_runtime_generation;
+uint32_t g_committed_generation;
 
 const char *phase_name(wl_phase_t phase) {
     switch (phase) {
@@ -106,28 +120,42 @@ void button_init() {
     g_button0_pressed = 0;
 }
 
-bool same_as_last_saved(const wl_state_t &state) {
-    return g_last_saved_valid && state.phase == g_last_saved_phase &&
-           state.position == g_last_saved_position;
+void begin_job_tracking(bool restored) {
+    ++g_job_generation;
+    if (g_job_generation == 0u) ++g_job_generation;
+    g_runtime_generation = restored ? 1u : 0u;
+    g_committed_generation = g_runtime_generation;
+    g_job_has_durable_checkpoint = restored;
+    g_checkpoint_edge_armed = false;
+    g_job_tracking_active = true;
 }
 
-void remember_saved(const wl_state_t &state) {
-    g_last_saved_valid = true;
-    g_last_saved_phase = state.phase;
-    g_last_saved_position = state.position;
+void note_coherent_progress() {
+    ++g_runtime_generation;
+    if (g_runtime_generation == 0u) ++g_runtime_generation;
+}
+
+bool checkpoint_needed(const wl_state_t &state) {
+    return state.dirty && state.phase != WL_PHASE_IDLE &&
+           g_runtime_generation != g_committed_generation;
 }
 
 bool save_live_checkpoint() {
     wl_state_t state = {};
     wl_state(&state);
-    if (!state.dirty || state.phase == WL_PHASE_IDLE ||
-        same_as_last_saved(state)) {
+    if (!checkpoint_needed(state)) {
         return true;
     }
-    if (g_checkpoint_failure_latched ||
-        g_checkpoint_attempts >= BISEN_CAMERA_MAX_CHECKPOINTS) {
+    const bool session_limit_reached =
+        BISEN_CAMERA_MAX_CHECKPOINTS != 0u &&
+        g_checkpoint_attempts >= BISEN_CAMERA_MAX_CHECKPOINTS;
+    if (g_checkpoint_failure_latched || session_limit_reached) {
+        g_checkpoint_failure_latched = true;
+        pp_note_checkpoint_failed();
+        pp_mark_boot();
         am_util_stdio_printf(
-            "BISen camera checkpoint suppressed: attempts=%u limit=%u failure=%u\n\n",
+            "BISen camera checkpoint BLOCKED: attempts=%u limit=%u failure=%u;"
+            " refusing to advance unprotected work\n\n",
             (unsigned)g_checkpoint_attempts,
             (unsigned)BISEN_CAMERA_MAX_CHECKPOINTS,
             g_checkpoint_failure_latched ? 1u : 0u);
@@ -155,34 +183,80 @@ bool save_live_checkpoint() {
     }
 
     g_checkpoint_successes++;
-    remember_saved(state);
+    g_committed_generation = g_runtime_generation;
+    g_job_has_durable_checkpoint = true;
     pp_mark_committed();
     am_util_stdio_printf(
         "BISen camera checkpoint committed: phase=%s position=%lu payload=%lu"
-        " slot_program_calls=%lu session=%lu/%u backend=%s\n",
+        " job=%lu generation=%lu backend_writes=%lu HAL_programs=%lu"
+        " session=%lu limit=%s backend=%s\n",
         phase_name(state.phase), (unsigned long)state.position,
         (unsigned long)state.payload_bytes,
+        (unsigned long)g_job_generation,
+        (unsigned long)g_runtime_generation,
         (unsigned long)g_ckpt_dev_programs,
+        (unsigned long)g_ckpt_dev_hal_program_calls,
         (unsigned long)g_checkpoint_successes,
-        (unsigned)BISEN_CAMERA_MAX_CHECKPOINTS,
+        BISEN_CAMERA_MAX_CHECKPOINTS == 0u ? "unlimited" : "configured",
         BISEN_CAMERA_ENABLE_MRAM ? "MRAM" : "retained-RAM");
+    return true;
+}
+
+bool retire_completed_checkpoint() {
+    if (!g_job_has_durable_checkpoint) return true;
+
+    pp_mark_nvm_write();
+    const int status = ckpt_retire();
+    if (status != 1) {
+        g_checkpoint_failure_latched = true;
+        pp_note_checkpoint_failed();
+        pp_mark_boot();
+        am_util_stdio_printf(
+            "BISen camera checkpoint retirement FAILED: job=%lu status=%d;"
+            " old recovery record may still be live\n",
+            (unsigned long)g_job_generation, status);
+        return false;
+    }
+
+    ++g_checkpoint_retirements;
+    g_job_has_durable_checkpoint = false;
+    g_committed_generation = g_runtime_generation;
+    pp_mark_committed();
+    am_util_stdio_printf(
+        "BISen camera checkpoint retired: job=%lu tombstones=%lu"
+        " backend_writes=%lu HAL_programs=%lu\n",
+        (unsigned long)g_job_generation,
+        (unsigned long)g_checkpoint_retirements,
+        (unsigned long)g_ckpt_dev_programs,
+        (unsigned long)g_ckpt_dev_hal_program_calls);
     return true;
 }
 
 bool restore_pending_workload() {
     // The scan and inference records share the two slots. The checkpoint
     // library resolves which record is newest and validates its CRC.
-    uint16_t scan_position = 0u;
-    if (ckpt_scan_pending(&scan_position)) {
+    if (ckpt_newest_is_retired()) {
+        am_util_stdio_printf(
+            "BISen camera newest checkpoint record is retired; starting a new job\n");
+        return false;
+    }
+
+    if (ckpt_scan_pending(nullptr)) {
         pp_mark_restore();
-        if (scan_restore_mram() &&
-            wl_restore_commit(WL_PHASE_SCAN, scan_position) == 0) {
-            wl_state_t state = {};
-            wl_state(&state);
-            remember_saved(state);
+        if (scan_restore_mram()) {
+            // scan_restore_mram() may have rejected a torn newest slot and
+            // fallen back to the older one. Use the position it actually
+            // adopted, never the unchecked header seen before CRC validation.
+            const uint16_t restored_position = scan_next_pixel();
+            if (wl_restore_commit(WL_PHASE_SCAN, restored_position) != 0) {
+                pp_mark_boot();
+                am_util_stdio_printf(
+                    "BISen camera scan checkpoint adoption rejected\n");
+                return false;
+            }
             am_util_stdio_printf(
                 "BISen camera restored scan at pixel %u/1024\n",
-                (unsigned)scan_position);
+                (unsigned)restored_position);
             return true;
         }
         pp_mark_boot();
@@ -197,9 +271,6 @@ bool restore_pending_workload() {
             ((uint32_t)context->unit & 0x00ffffffu);
         pp_mark_restore();
         if (wl_restore_commit(WL_PHASE_INFER, position) == 0) {
-            wl_state_t state = {};
-            wl_state(&state);
-            remember_saved(state);
             am_util_stdio_printf(
                 "BISen camera restored CNN at layer=%u unit=%u\n",
                 (unsigned)context->layer, (unsigned)context->unit);
@@ -210,6 +281,46 @@ bool restore_pending_workload() {
     }
     return false;
 }
+
+#if BISEN_CAMERA_VCAP_CALIBRATION_MODE
+[[noreturn]] void run_vcap_calibration_diagnostic() {
+    pp_mark_adc();
+    uint64_t sum = 0u;
+    uint32_t minimum = UINT32_MAX;
+    uint32_t maximum = 0u;
+    uint32_t valid = 0u;
+
+    for (uint32_t i = 0u; i < BISEN_CAMERA_VCAP_CALIBRATION_SAMPLES; ++i) {
+        uint32_t code = 0u;
+        if (adc_shared_read_vcap(&code) == 0) {
+            sum += code;
+            if (code < minimum) minimum = code;
+            if (code > maximum) maximum = code;
+            ++valid;
+        }
+        am_util_delay_ms(2u);
+    }
+
+    if (valid == 0u) {
+        pp_mark_boot();
+        am_util_stdio_printf(
+            "BISen camera VCAP calibration FAILED: no valid ADC samples\n");
+    } else {
+        const uint32_t mean = (uint32_t)((sum + valid / 2u) / valid);
+        am_util_stdio_printf(
+            "BISen camera VCAP calibration point: samples=%lu valid=%lu"
+            " code_mean=%lu code_min=%lu code_max=%lu\n",
+            (unsigned long)BISEN_CAMERA_VCAP_CALIBRATION_SAMPLES,
+            (unsigned long)valid, (unsigned long)mean,
+            (unsigned long)minimum, (unsigned long)maximum);
+        am_util_stdio_printf(
+            "Measure VCAP at the capacitor with the DMM and record"
+            " (code_mean, DMM_mV); no camera work or MRAM writes were run.\n");
+        pp_mark_sleep();
+    }
+    while (true) __WFI();
+}
+#endif
 
 void emit_result() {
     const int digit = wl_result();
@@ -227,12 +338,17 @@ void emit_result() {
     }
     am_util_stdio_printf(
         "BISen camera timing: scan=%lu us inference=%lu us; checkpoints=%lu/%lu"
-        " MRAM_program_calls=%lu bytes=%lu\n",
+        " retirements=%lu backend_writes=%lu HAL_programs=%lu/%lu"
+        " program_units_16B=%lu bytes=%lu\n",
         (unsigned long)wl_phase_last_us(WL_PHASE_SCAN),
         (unsigned long)wl_phase_last_us(WL_PHASE_INFER),
         (unsigned long)g_checkpoint_successes,
         (unsigned long)g_checkpoint_attempts,
+        (unsigned long)g_checkpoint_retirements,
         (unsigned long)g_ckpt_dev_programs,
+        (unsigned long)g_ckpt_dev_hal_program_successes,
+        (unsigned long)g_ckpt_dev_hal_program_calls,
+        (unsigned long)g_ckpt_dev_program_units,
         (unsigned long)g_ckpt_dev_bytes);
     am_util_stdio_printf(
         "BISen camera VCAP high-sample filter: ignored=%lu"
@@ -284,22 +400,29 @@ bool run_bisen_job(bool restored_from_storage) {
             (!require_restore_threshold || pp_restore_allowed());
 
         if (!energy_allows_work) {
+            const bool crossed_from_work = g_checkpoint_edge_armed;
+            g_checkpoint_edge_armed = false;
             wl_request_stop();
             (void)wl_step(1u);  // observe STOPPED at a coherent unit boundary
 
             wl_state_t state = {};
             wl_state(&state);
-            if (pp_should_checkpoint() && state.dirty &&
-                !same_as_last_saved(state)) {
-                (void)save_live_checkpoint();
+            const bool dirty = checkpoint_needed(state);
+            if (crossed_from_work && pp_should_checkpoint() && dirty &&
+                !save_live_checkpoint()) {
+                return false;
             }
 
             am_util_stdio_printf(
                 "BISen camera wait: VCAP=%lu mV band=%s phase=%s position=%lu"
-                " dirty=%u\n",
+                " live=%u dirty=%u job=%lu generation=%lu/%lu edge=%u\n",
                 (unsigned long)pp_vcap_mv(), pp_band_name(),
                 phase_name(state.phase), (unsigned long)state.position,
-                (unsigned)state.dirty);
+                (unsigned)state.dirty, dirty ? 1u : 0u,
+                (unsigned long)g_job_generation,
+                (unsigned long)g_runtime_generation,
+                (unsigned long)g_committed_generation,
+                crossed_from_work ? 1u : 0u);
             if (!wait_for_energy(require_restore_threshold)) {
                 return false;
             }
@@ -309,6 +432,8 @@ bool run_bisen_job(bool restored_from_storage) {
         }
 
         require_restore_threshold = false;
+        g_checkpoint_edge_armed = true;
+        if (wl_stop_requested()) wl_resume();
         uint32_t chunk = pp_chunk_units();
         if (chunk == 0u) chunk = 1u;
 
@@ -333,12 +458,15 @@ bool run_bisen_job(bool restored_from_storage) {
         scheduler_steps++;
         if (result == WL_STEP_COMPLETE) {
             emit_result();
-            // Completion is not an MRAM checkpoint. The old recovery record is
-            // deliberately left untouched; the result is at-least-once after
-            // a later cold boot until completion logging is separately agreed.
+            // The result payload is not persisted. If this job ever created or
+            // restored a recovery checkpoint, one atomic header-only tombstone
+            // retires it so a later cold boot cannot resurrect completed work.
+            if (!retire_completed_checkpoint()) return false;
             wl_reset();
+            g_job_tracking_active = false;
             return true;
         }
+        if (result == WL_STEP_PROGRESS) note_coherent_progress();
         if (result == WL_STEP_ERROR) {
             pp_mark_boot();
             am_util_stdio_printf("BISen camera workload ERROR\n");
@@ -387,7 +515,8 @@ int main() {
         " wait<5900 resume=6100 sleep<5500 mV; hysteresis=none\n",
         es_source_name());
     am_util_stdio_printf(
-        "BISen camera checkpoint backend=%s session_limit=%u; completion writes=off\n",
+        "BISen camera checkpoint backend=%s session_limit=%u (0=unlimited);"
+        " dirty=job-generation; completion=tombstone-if-needed\n",
         BISEN_CAMERA_ENABLE_MRAM ? "two-slot app-local MRAM" : "retained RAM",
         (unsigned)BISEN_CAMERA_MAX_CHECKPOINTS);
     am_util_stdio_printf(
@@ -401,6 +530,14 @@ int main() {
     am_util_stdio_printf(
         "BISen camera modes: reset=one bounded job then park;"
         " BTN0=continuous jobs; reset exits continuous mode\n");
+
+#if BISEN_CAMERA_VCAP_CALIBRATION_MODE
+    am_util_stdio_printf(
+        "BISen camera VCAP CALIBRATION MODE: workload=off MRAM=off"
+        " samples=%u\n",
+        (unsigned)BISEN_CAMERA_VCAP_CALIBRATION_SAMPLES);
+    run_vcap_calibration_diagnostic();
+#endif
 
     ckpt_init();
     bool restored = restore_pending_workload();
@@ -420,20 +557,26 @@ int main() {
         if (!reset_job_pending && !continuous_mode) {
             park_until_continuous_request();
             continuous_mode = true;
-            continuous_job = 0u;
+            continuous_job = g_job_tracking_active ? 1u : 0u;
             am_util_stdio_printf(
                 "BISen camera continuous mode entered; reset to stop\n");
         }
 
+        const bool continuing_job = g_job_tracking_active;
+        if (!continuing_job) {
+            begin_job_tracking(restored);
+            if (continuous_mode) ++continuous_job;
+        }
         if (continuous_mode) {
-            ++continuous_job;
             am_util_stdio_printf(
-                "BISen camera continuous job #%lu start%s\n",
+                "BISen camera continuous job #%lu %s%s\n",
                 (unsigned long)continuous_job,
+                continuing_job ? "continue retained SRAM progress" : "start",
                 restored ? " (restored progress)" : "");
         } else {
             am_util_stdio_printf(
-                "BISen camera reset-bounded job start%s\n",
+                "BISen camera reset-bounded job %s%s\n",
+                continuing_job ? "continue retained SRAM progress" : "start",
                 restored ? " (restored progress)" : "");
         }
         const bool completed = run_bisen_job(restored);
@@ -446,6 +589,12 @@ int main() {
         } else {
             am_util_stdio_printf("BISen camera reset-bounded job %s\n",
                                  completed ? "PASS" : "INCOMPLETE");
+        }
+        if (!completed && g_checkpoint_failure_latched) {
+            am_util_stdio_printf(
+                "BISen camera storage integrity fault; target parked until reset\n");
+            pp_mark_boot();
+            while (true) __WFI();
         }
         reset_job_pending = false;
     }

@@ -85,10 +85,6 @@
 #define BISEN_LOG_BACKEND BISEN_LOG_BACKEND_RAM
 #endif
 
-#ifndef BISEN_MRAM_SESSION_ATTEMPT_LIMIT
-#define BISEN_MRAM_SESSION_ATTEMPT_LIMIT 64
-#endif
-
 #ifndef BISEN_RESUME_VCAP_MV
 #define BISEN_RESUME_VCAP_MV 6100
 #endif
@@ -120,11 +116,6 @@
 
 #if BISEN_LOG_BACKEND == BISEN_LOG_BACKEND_MRAM
 #error "Persistent event logging is intentionally unsupported in this refactor"
-#endif
-
-#if BISEN_MRAM_SESSION_ATTEMPT_LIMIT < 1 || \
-    BISEN_MRAM_SESSION_ATTEMPT_LIMIT > 64
-#error "The powered-session MRAM attempt limit must be between 1 and 64"
 #endif
 
 #if BISEN_RESUME_VCAP_MV > 9040

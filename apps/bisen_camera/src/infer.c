@@ -75,6 +75,7 @@ static inline int power_critical(void) { return pp_should_checkpoint(); }
 
 // Newest committed header across the slots, so we can print the seq and crc
 // that were really stored instead of claiming a number came from storage.
+#if CKPT_TEST_RESUME
 static int newest_slot_hdr(ckpt_hdr_t *out) {
     int found = 0;
     for (uint32_t s = 0; s < CKPT_NUM_SLOTS; s++) {
@@ -86,6 +87,7 @@ static int newest_slot_hdr(ckpt_hdr_t *out) {
     }
     return found;
 }
+#endif
 
 // Run from wherever the context currently is, then publish the scores. Same
 // code for a fresh inference and a restored one; the engine cannot tell.
@@ -282,25 +284,22 @@ int infer_init(void) {
         }
     }
 
-    // Capture the stored header BEFORE restoring: ckpt_restore blanks a slot
-    // whose CRC fails, so peeking afterwards could show less than was there.
-    // Zeroed because it is printed below whether or not a slot was found --
-    // reading it uninitialized would print convincing garbage.
-    ckpt_hdr_t pend;
-    for (unsigned i = 0; i < sizeof pend; i++) ((uint8_t *)&pend)[i] = 0;
-    newest_slot_hdr(&pend);
-
     if (ckpt_restore(&g_net) && nn_in_progress(&g_net)) {
+        ckpt_hdr_t accepted;
+        for (unsigned i = 0; i < sizeof accepted; i++) {
+            ((uint8_t *)&accepted)[i] = 0;
+        }
+        (void)ckpt_last_restore(&accepted);
         g_boot_layer = g_net.layer;
         g_boot_unit  = g_net.unit;
-        g_boot_seq   = pend.seq;
-        g_boot_crc   = pend.crc;
+        g_boot_seq   = accepted.seq;
+        g_boot_crc   = accepted.crc;
         am_util_stdio_printf(
             "CKPT resume=INFERENCE at layer %u unit %u (%u/%u units done)"
             " seq=%u crc=0x%08X VERIFIED\n",
             (unsigned)g_net.layer, (unsigned)g_net.unit,
             (unsigned)nn_units_done(&g_net), (unsigned)nn_total_units(),
-            (unsigned)pend.seq, (unsigned)pend.crc);
+            (unsigned)accepted.seq, (unsigned)accepted.crc);
         return 1;
     }
     return 0;

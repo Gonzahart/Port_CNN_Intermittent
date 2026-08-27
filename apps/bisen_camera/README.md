@@ -72,7 +72,10 @@ thresholds themselves are unchanged:
 | below 5.500 V | sleep-floor classification |
 
 There is no policy hysteresis and no second safe-write voltage floor.
-Completing a frame does not create an MRAM recovery checkpoint.
+Completing a frame does not persist its image or CNN result. If that job had a
+recovery checkpoint, completion writes one 16-byte sequence-ordered tombstone
+so a later cold boot cannot resurrect already-consumed work. Jobs that never
+checkpointed incur no completion write.
 
 ## Build, deploy, and view
 
@@ -110,13 +113,37 @@ make -B \
 ```
 
 The default run starts one bounded camera/CNN job after reset, then parks.
-Press BTN0/SW1 to start one more job. MRAM uses two alternating app-local
-8,080-byte slots and is capped at four attempts per powered session.
+Press BTN0/SW1 to enter continuous operation. MRAM uses two alternating
+app-local 8,080-byte slots. Dirty state is tracked by per-job runtime and
+committed generations. There is no artificial powered-session checkpoint cap
+by default, matching the MSP430 behavior. A nonzero
+`BISEN_CAMERA_MAX_CHECKPOINTS` may be supplied as a research guard; reaching it
+parks the target rather than advancing unprotected work.
+
+Boot-time restore is read-only. A newest slot whose payload CRC fails is
+ignored in RAM and the older same-phase slot is tried; firmware does not erase
+or repair MRAM before VCAP has been qualified. A newer record belonging to a
+different phase, or a retirement tombstone, prevents stale cross-job fallback.
 
 ## Calibration override
 
-After collecting DMM-confirmed pairs of `(ADC code, VCAP millivolts)` on
-J9.8/GPIO16, fit `VCAP_nV = slope_nV_per_code * code + offset_nV` and build:
+Calibration has a physical measurement step and a firmware coefficient step;
+it does not require changing the divider. Build the one-shot diagnostic below,
+set a stable VCAP, reset, and record the printed `code_mean` together with the
+DMM voltage measured directly across the capacitor. Repeat at 5.0, 6.1, 7.5,
+8.5, and approximately 8.9 V. The diagnostic returns before camera work,
+checkpoint initialisation, or any MRAM write.
+
+```sh
+make -B \
+  EXAMPLE=bisen_camera \
+  PLATFORM=apollo4p_evb \
+  AS_VERSION=R4.5.0 \
+  BISEN_CAMERA_VCAP_CALIBRATION_MODE=1
+```
+
+After collecting the DMM-confirmed pairs of `(code_mean, VCAP millivolts)`,
+fit `VCAP_nV = slope_nV_per_code * code + offset_nV` and build:
 
 ```sh
 make -B \
@@ -132,6 +159,23 @@ Do not set the calibrated flag merely to suppress the warning. Preserve the
 working external 1.90 V MCU rail arrangement and do not parallel it with an
 onboard source. Any Rev. 1 power-jumper or solder-bridge change remains a
 separate physical decision and is not implied by this firmware target.
+
+## Checkpoint behavior to verify on hardware
+
+For a controlled stable-supply run, begin above 6.1 V and let at least one
+coherent camera/CNN step finish. Then cross below 5.9 V. SWO must show exactly
+one `checkpoint committed` line with `edge=1`, live progress, and different
+runtime/committed generations. Holding VCAP low must not add writes. Raise VCAP
+above 6.1 V: the same SRAM position resumes without an MRAM restore because no
+reset occurred. After new progress, another high-to-low crossing may commit a
+new checkpoint. On job completion, expect one 16-byte retirement tombstone only
+if that job had a durable checkpoint; after reset, the tombstone must prevent a
+restore of the completed job.
+
+The SWO summary distinguishes scheduler checkpoint attempts, high-level backend
+writes, actual HAL program calls, 16-byte program units, and bytes. These are
+separate counts: one checkpoint can require several payload programs plus its
+header-last commit.
 
 The workload interface is documented in `API.md`; ADC and GPIO ownership are
 documented in `OWNERSHIP.md`.

@@ -62,10 +62,17 @@ after the linked image as a `NOLOAD` region. `ckpt.c` and `ckpt_mram.c` are the
 only writers. The secure bootloader and `apps/bisen_port` regions are not
 modified by this app's source or linker extension.
 
-Checkpoint writes occur only for dirty, incomplete progress when the direct
-BISen policy says the next useful unit is unaffordable. A completed CNN frame
-does not create a recovery checkpoint. The default powered-session attempt cap
-is four.
+Checkpoint writes occur only on an allowed-to-wait transition when coherent
+progress has advanced the current job's runtime generation beyond its last
+committed generation. A completed CNN frame does not persist its result. If it
+has a live recovery checkpoint, it commits one header-only retirement
+tombstone; otherwise completion writes nothing. The default has no artificial
+powered-session limit, matching the MSP430. If a nonzero research guard is
+configured, reaching it fails closed.
+
+Restore never programs MRAM. CRC-failed slots are excluded in RAM while the
+older slot is considered, so cold-boot fallback cannot create an unqualified
+write or consume endurance.
 
 ## Board-target boundary
 
