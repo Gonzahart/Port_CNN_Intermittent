@@ -283,21 +283,25 @@ constexpr float kVcapDividerScale =
     1.0f + kVcapDividerTopKohms / kVcapDividerBottomKohms;
 
 // The old Blue KXR fit must not be reused: it included that board's additional
-// 1 MOhm pulldown and GPIO15 path. Until this GPIO16/SE3 installation is fitted
-// against DMM readings, use only the nominal AMAP4PEVB transfer function:
+// 1 MOhm pulldown and GPIO15 path. The nominal AMAP4PEVB transfer function is:
 //
 //   VCAP/code = (1.19 V / 4095) * (1 + 1000/55.8) = 5.498453 mV
 //
-// A later bench fit may be supplied from module.mk without changing policy or
-// ADC code. BISEN_CAMERA_VCAP_CALIBRATED controls only the startup label.
+// The fallbacks below are the five-point GPIO16/SE3 bench fit collected with
+// the physical 1 MOhm / 55.8 kOhm divider on 2026-08-27:
+//
+//   DMM_mV = 5.635588398 * ADC_code - 76.671740
+//
+// module.mk supplies the same defaults. BISEN_CAMERA_VCAP_CALIBRATED controls
+// only the startup label; it does not alter the policy thresholds.
 #ifndef BISEN_CAMERA_VCAP_CALIBRATED
-#define BISEN_CAMERA_VCAP_CALIBRATED 0
+#define BISEN_CAMERA_VCAP_CALIBRATED 1
 #endif
 #ifndef BISEN_CAMERA_VCAP_NANOVOLTS_PER_CODE
-#define BISEN_CAMERA_VCAP_NANOVOLTS_PER_CODE 5498453
+#define BISEN_CAMERA_VCAP_NANOVOLTS_PER_CODE 5635588
 #endif
 #ifndef BISEN_CAMERA_VCAP_OFFSET_NANOVOLTS
-#define BISEN_CAMERA_VCAP_OFFSET_NANOVOLTS 0
+#define BISEN_CAMERA_VCAP_OFFSET_NANOVOLTS -76671740
 #endif
 constexpr bool kVcapCalibrationBenchValidated =
     BISEN_CAMERA_VCAP_CALIBRATED != 0;

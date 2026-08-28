@@ -30,12 +30,14 @@ pp_defines += BISEN_ENABLE_GPIO_INSTRUMENTATION=1
 # - normal sleep for photodiode settle waits; deep sleep remains opt-in
 BISEN_CAMERA_ENERGY_SOURCE ?= 1
 BISEN_CAMERA_VCAP_GPIO16_CONFIRMED ?= 1
-# The default conversion is the nominal transfer function of the external
-# divider and the SDK's 1.19 V ADC reference. It is intentionally labelled
-# uncalibrated until GPIO16/SE3 is compared with a DMM at several VCAP points.
-BISEN_CAMERA_VCAP_CALIBRATED ?= 0
-BISEN_CAMERA_VCAP_NANOVOLTS_PER_CODE ?= 5498453
-BISEN_CAMERA_VCAP_OFFSET_NANOVOLTS ?= 0
+# Bench fit from the physical GPIO16/ADCSE3 path and transferred divider:
+#   DMM_mV = 5.635588398 * ADC_code - 76.671740
+# Five 32-sample points at 5.0, 6.1, 7.5, 8.5, and 8.9 V produced
+# R^2=0.999739 and 23.7 mV RMS residual. Keep integer nanovolt coefficients so
+# the runtime conversion remains deterministic and floating-point-free.
+BISEN_CAMERA_VCAP_CALIBRATED ?= 1
+BISEN_CAMERA_VCAP_NANOVOLTS_PER_CODE ?= 5635588
+BISEN_CAMERA_VCAP_OFFSET_NANOVOLTS ?= -76671740
 BISEN_CAMERA_ENABLE_MRAM ?= 1
 # Zero matches the MSP430 behavior: no artificial powered-session checkpoint
 # cap. A nonzero research guard is supported and fails closed if reached.

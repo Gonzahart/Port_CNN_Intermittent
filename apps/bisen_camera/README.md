@@ -47,8 +47,8 @@ especially the MCU and GPIO-header sheets. The target's board definition is
 
 The previous Blue KXR calibration is intentionally not reused. It included an
 additional onboard pulldown and was measured on GPIO15/ADCSE4. AMAP4PEVB J9.8
-is a direct GPIO16/ADCSE3 header path, so the default conversion is the nominal
-external-divider transfer function:
+is a direct GPIO16/ADCSE3 header path. Its nominal external-divider transfer
+function is:
 
 ```text
 divider scale = 1 + 1000 kOhm / 55.8 kOhm = 18.921146953
@@ -56,11 +56,21 @@ VCAP/code     = (1.19 V / 4095) * scale = 5.498453 mV/code
 offset        = 0 mV
 ```
 
-The startup banner says `nominal, UNCALIBRATED` until a GPIO16/SE3 DMM sweep is
-used to fit and explicitly supply new coefficients. Do not use threshold or
-energy results as research data before that calibration. Each bounded job logs
-its first raw ADC code and converted VCAP value to support that sweep. The scheduling
-thresholds themselves are unchanged:
+The physical GPIO16/SE3 path was then measured with 32 ADC readings at each DMM
+VCAP point:
+
+| DMM VCAP | Mean ADC code | Fitted VCAP | Residual |
+|---:|---:|---:|---:|
+| 5.000 V | 903 | 5.012 V | +12 mV |
+| 6.100 V | 1097 | 6.106 V | +6 mV |
+| 7.500 V | 1337 | 7.458 V | -42 mV |
+| 8.500 V | 1521 | 8.495 V | -5 mV |
+| 8.900 V | 1598 | 8.929 V | +29 mV |
+
+The least-squares fit is `VCAP_mV = 5.635588398 * code - 76.671740`
+(`R^2=0.999739`, RMS residual 23.7 mV). Firmware stores the rounded integer
+coefficients `5,635,588 nV/code` and `-76,671,740 nV`; the startup banner now
+reports `bench-calibrated`. The scheduling thresholds themselves are unchanged:
 
 | VCAP policy voltage | Action |
 |---:|---|
