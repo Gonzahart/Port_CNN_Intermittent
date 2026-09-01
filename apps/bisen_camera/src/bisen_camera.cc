@@ -528,6 +528,10 @@ int main() {
         (unsigned)BISEN_CAMERA_VCAP_IGNORE_AT_MV,
         (unsigned)BISEN_CAMERA_VCAP_HIGH_SAMPLE_RETRIES);
     am_util_stdio_printf(
+        "BISen camera VCAP decision estimator: discard=1 AVG16 median=3 AVG16"
+        " read_cost~%u us; threshold hysteresis=none\n",
+        (unsigned)adc_shared_vcap_cost_us());
+    am_util_stdio_printf(
         "BISen camera modes: reset=one bounded job then park;"
         " BTN0=continuous jobs; reset exits continuous mode\n");
 

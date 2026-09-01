@@ -56,17 +56,21 @@ void adc_shared_set_mode(adc_mode_t mode);
 // One photodiode conversion. Requires ADC_MODE_PIXEL; the caller is sensor.c.
 uint32_t adc_shared_read_pixel(void);
 
-// One supply-divider conversion. Switches to ADC_MODE_VCAP, converts, and
-// restores the previous mode. Returns 0 on success and writes the raw averaged
-// code to *out_code; returns -1 and leaves *out_code alone on failure.
+// One robust supply-divider decision sample. Switches to ADC_MODE_VCAP,
+// discards the first averaged result after the mode switch, returns the median
+// of the next three hardware-AVG16 results, and restores the previous mode.
+// This rejects one isolated post-switch outlier without policy hysteresis.
+// Returns 0 on success and writes the raw median code to *out_code; returns -1
+// and leaves *out_code alone on failure.
 //
 // The CALLER converts the code to millivolts. This file deliberately does not,
 // so the bench calibration stays in bisen_config.h where its author put it.
 int adc_shared_read_vcap(uint32_t *out_code);
 
-// Roughly what one adc_shared_read_vcap() costs, in microseconds. Unlike the
-// original path this does NOT include a 5 ms divider settle -- that is paid
-// once, in adc_shared_init(), because the pad stays configured.
+// Roughly what one adc_shared_read_vcap() costs, in microseconds. This includes
+// one discarded and three accepted averaged conversions plus mode switches.
+// It does NOT include a 5 ms divider settle -- that is paid once in
+// adc_shared_init(), because the pad stays configured.
 uint32_t adc_shared_vcap_cost_us(void);
 
 // ---------------------------------------------------------------------------

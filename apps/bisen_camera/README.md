@@ -70,7 +70,13 @@ VCAP point:
 The least-squares fit is `VCAP_mV = 5.635588398 * code - 76.671740`
 (`R^2=0.999739`, RMS residual 23.7 mV). Firmware stores the rounded integer
 coefficients `5,635,588 nV/code` and `-76,671,740 nV`; the startup banner now
-reports `bench-calibrated`. The scheduling thresholds themselves are unchanged:
+reports `bench-calibrated`. Runtime policy readings use the median of three
+hardware-AVG16 conversions after discarding the first conversion following the
+SE4-to-SE3 mode switch. This rejects one isolated ADC outlier before threshold
+comparison. It does not add voltage hysteresis, change the 5.900 V checkpoint
+threshold, rate-limit a real dirty checkpoint, or permit unprotected progress.
+Re-run the calibration points after this estimator change before collecting
+publication data. The scheduling thresholds themselves are unchanged:
 
 | VCAP policy voltage | Action |
 |---:|---|

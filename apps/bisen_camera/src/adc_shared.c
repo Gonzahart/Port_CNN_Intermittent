@@ -36,6 +36,14 @@
 // configured at boot and never reconfigured, so the node stays settled.
 #define VCAP_FIRST_SETTLE_US  5000u
 
+// Runtime VCAP decisions are made while ADC0 is repeatedly switching between
+// the camera's SE4 input and the capacitor divider on SE3. The hardware AVG16
+// result removes ordinary conversion noise, but a single post-switch outlier
+// can still look like a false crossing of the 5.9 V checkpoint threshold. A
+// median of three accepted AVG16 results rejects one such outlier without
+// adding policy hysteresis or suppressing a real sustained crossing.
+#define VCAP_DECISION_SAMPLES  3u
+
 // ERR091/ERR113: >= 37 tracking cycles required. 63 is the field maximum and
 // is what the divider's ~52.9 kohm Thevenin source resistance wants anyway.
 #define TRACKING_CYCLES  63u
@@ -145,6 +153,25 @@ static uint32_t convert_once(void) {
     return 0xFFFFFFFFu;
 }
 
+static uint32_t median3(uint32_t a, uint32_t b, uint32_t c) {
+    if (a > b) {
+        const uint32_t t = a;
+        a = b;
+        b = t;
+    }
+    if (b > c) {
+        const uint32_t t = b;
+        b = c;
+        c = t;
+    }
+    if (a > b) {
+        const uint32_t t = a;
+        a = b;
+        b = t;
+    }
+    return b;
+}
+
 // ---------------------------------------------------------------------------
 
 void adc_shared_init(void) {
@@ -186,18 +213,23 @@ int adc_shared_read_vcap(uint32_t *out_code) {
     // still starting up. Discarding it is the same precaution the original
     // energy path took, and it costs one conversion rather than 5 ms.
     (void)convert_once();
-    const uint32_t code = convert_once();
+    const uint32_t code0 = convert_once();
+    const uint32_t code1 = convert_once();
+    const uint32_t code2 = convert_once();
     if (prev != ADC_MODE_VCAP) enter_mode(prev);
 
-    if (code == 0xFFFFFFFFu) return -1;
-    *out_code = code;
+    if (code0 == 0xFFFFFFFFu || code1 == 0xFFFFFFFFu ||
+        code2 == 0xFFFFFFFFu) {
+        return -1;
+    }
+    *out_code = median3(code0, code1, code2);
     return 0;
 }
 
 uint32_t adc_shared_vcap_cost_us(void) {
-    // Two averaged conversions plus two mode changes. No divider settle: that
-    // was paid at boot. Measured behaviour should be checked against this.
-    return 2u * 107u + 20u;
+    // One discarded conversion, VCAP_DECISION_SAMPLES accepted conversions,
+    // and two mode changes. No divider settle: that was paid at boot.
+    return (1u + VCAP_DECISION_SAMPLES) * 107u + 20u;
 }
 
 // ---------------------------------------------------------------------------
