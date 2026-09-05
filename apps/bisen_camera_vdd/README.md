@@ -1,77 +1,92 @@
-# BISen camera direct-VDD bring-up — AMAP4PEVB Rev. 1
+# BISen camera direct-VDD capture — AMAP4PEVB Rev. 1
 
 `bisen_camera_vdd` is a separate neuralSPOT application for the Apollo4 Plus
-BGA Evaluation Board Rev. 1 (`PLATFORM=apollo4p_evb`). It is derived from the
-working `bisen_camera` integration, but this initial milestone is deliberately
-limited to measuring `VDD_MCU` through the Apollo4 Plus internal ADC `BATT`
-channel. It does not modify or link `apps/bisen_camera` or `apps/bisen_port`.
+BGA Evaluation Board Rev. 1 (`PLATFORM=apollo4p_evb`). It combines the working
+camera/LeNet workload with direct `VDD_MCU` energy sensing through the Apollo4
+Plus internal ADC `BATT` channel. It does not modify or link
+`apps/bisen_camera` or `apps/bisen_port`.
 
-## Initial milestone scope
+## Full-capture scope
 
-The default image:
+The default image enables:
 
-- keeps the existing camera pin map and shared ADC0 owner;
-- switches ADC0 from the GPIO15/ADCSE4 photodiode slot to the internal `BATT`
-  slot and back;
-- captures up to sixteen 32-sample supply points on BTN0 while J-Link USB is
-  disconnected;
-- retains those raw-code statistics in volatile `NOLOAD` TCM and prints them
-  on BTN1 after J-Link USB is reconnected;
-- reports the nominal SDK conversion for each retained point;
-- reports the read-only `MCUCTRL->ADCBATTLOAD` value;
-- remains in the bounded calibration diagnostic; it never starts the workload.
+- GPIO15/ADCSE4 photodiode acquisition and the existing resumable LeNet job;
+- internal `BATT` (`VDD/3`) sampling through the shared ADC0 owner;
+- energy-dependent 100, 500, and 1000-unit CNN scheduling;
+- one-pixel camera scan boundaries so VDD is sampled between coherent pixels;
+- retained SRAM progress while waiting for more energy;
+- falling-edge, dirty-progress-only two-slot MRAM checkpoints;
+- boot-time scan or CNN restore with CRC/torn-write rejection;
+- one tombstone only when a completed job has a live durable checkpoint;
+- low-power timed polling while VDD is below the work threshold;
+- the 3-bit weighted-resistor state bus on GPIO62/63/61;
+- one bounded job after reset, then park; BTN0 enters continuous-job mode and
+  reset exits continuous mode.
 
-Camera acquisition, CNN inference, direct-VDD policy thresholds, low-power
-cycling, checkpoint restore, and MRAM programming are not enabled in this
-milestone. The source contains the inherited camera workload so later stages
-can be enabled incrementally, but the build fails if the diagnostic is turned
-off before direct-VDD policy work is implemented.
+The secure bootloader, `basic_tf_stub`, `apps/bisen_port`, and
+`apps/bisen_camera` are outside this app and are unchanged.
 
-## SDK basis
+## Direct-VDD policy used for this capture milestone
 
-AmbiqSuite R4.5.0 defines:
+Scheduling compares the raw internal-BATT ADC code. This avoids moving a state
+boundary with the residual error of a global code-to-voltage fit. The DMM or
+scope measurement at J7.1/J7.2 remains the physical voltage reference.
+
+| Decision | Raw-code boundary | Calibration anchor |
+|---|---:|---:|
+| 1000 CNN units | `>= 2553` | about 2.20 V DMM |
+| 500 CNN units | `>= 2441` | about 2.10 V DMM |
+| 100 CNN units | `>= 2333` | about 2.00 V DMM |
+| Wait; checkpoint once on a dirty falling transition | `< 2333` | below about 2.00 V |
+| Restart/restore after a durable interruption | `>= 2441` | about 2.10 V DMM |
+| Low-power floor | `< 2185` | about 1.90 V DMM |
+
+There is no band hysteresis. The separate restart/restore boundary is the
+Apollo equivalent of the MSP430 reference's distinct start/continue decision.
+These values are provisional behavior-capture thresholds anchored to this
+board's offline calibration. They are not final harvested-energy thresholds or
+proof that every MRAM write completes under an arbitrary RF-trace slew rate.
+Those claims require workload-energy and brownout-margin characterization.
+
+AmbiqSuite R4.5.0 defines the nominal readback conversion as:
 
 ```text
-AM_HAL_ADC_SLOT_CHSEL_BATT = internal voltage divide-by-3 connection
-AM_HAL_ADC_VREFMV          = 1190 mV
-AM_HAL_ADC_SAMPLE_DIVISOR  = 4096 for 12-bit samples
+nominal_VDD_mV = ADC_code * 3 * 1190 / 4096
 ```
 
-The nominal diagnostic conversion is therefore:
+The firmware prints that nominal value for diagnostics, but makes the policy
+decision from raw code.
 
-```text
-VDD_MCU_mV = ADC_code * 3 * 1190 / 4096
-```
+## State-DAC codes
 
-This is only the SDK transfer function. Runtime policy thresholds will use a
-fit from raw code to a simultaneous DMM measurement on the physical board.
-
-The `BATTLOAD` register controls an optional battery load resistor. This app
-does not write or enable it; the register is printed only as a safety audit.
+| Code | Meaning |
+|---:|---|
+| 0 | Sleep / inactive / energy wait |
+| 1 | VDD ADC |
+| 2 | Camera / pixel sensing |
+| 3 | CNN compute |
+| 4 | MRAM write |
+| 5 | Checkpoint committed or retired |
+| 6 | Context restore |
+| 7 | Boot / error |
 
 ## Validated bench topology
 
-The current bench wiring is:
-
 | Function | Connection |
 |---|---|
-| Bench supply positive | J7.3 (`VDD_EXT`) |
-| Bench supply return | Board ground at J3.8 |
+| Direct supply/harvester output | J7.3 (`VDD_EXT`) |
+| Return | Board ground at J3.8 |
 | Measured MCU rail | J7.1 or J7.2 (`VDD_MCU`) |
 | Camera pixel ADC | J9.10 / GPIO15 / ADCSE4 |
 | State bus | J12.7/.9/.11 / GPIO62/63/61 |
 | BTN0 | GPIO18 |
-| BTN1 | GPIO19 |
 
-With J3.3–J3.4 jumpered, the measured `VDD_EXT`, `VDD_MCU`, and camera row and
-column supplies tracked within a few millivolts. `VDD_5V` remained near zero.
-SB3 remains in its factory-closed state, so future energy results must be
-labelled as EVB-as-configured until the final power PCB removes that ambiguity.
-
-Do not infer rail voltage from the bench supply setpoint. The present setup
-showed an unexplained 0.22–0.27 V difference between the programmed setpoint
-and J7.3. Use a DMM at J7.1/J7.2, verify that the supply is in CV rather than CC
-mode, and never let measured `VDD_MCU` exceed 2.20 V.
+The weighted state-DAC uses GPIO62 through about 99.3 kOhm, GPIO63 through
+about 201 kOhm, and GPIO61 through about 398 kOhm into the common scope node.
+J3.3-J3.4 remain jumpered and SB3 remains factory-closed, so energy results
+must be labelled EVB-as-configured. Do not infer `VDD_MCU` from generator or
+bench-supply setpoint; measure at J7.1/J7.2. Keep the established 2.20 V
+measured-rail ceiling for this milestone.
 
 ## Build, deploy, and view
 
@@ -94,55 +109,45 @@ make view \
   AS_VERSION=R4.5.0
 ```
 
-Expected application output includes:
+The default reset path runs one bounded job and parks. Press BTN0 after it
+parks to enter continuous mode. A reset exits continuous mode and again runs
+one bounded job.
 
-```text
-BISen camera/CNN direct-VDD stage 1
-BISen camera VDD CALIBRATION MODE: workload=off MRAM=off policy_thresholds=unset
-BISen camera VDD offline-capture diagnostic ARMED
-BISen camera VDD retained point #...: ... code_mean=... nominal_VDD=... mV
-BISen camera VDD calibration audit: ADC_mode_after=0 MCUCTRL_ADCBATTLOAD=0x00000000
+## First full multi-state bench capture
+
+1. Power at a measured `VDD_MCU` near 2.10 V, flash the image, and open SWO.
+2. Confirm the startup banner says `direct-VDD full capture`, source
+   `internal BATT (VDD/3)`, `two-slot app-local MRAM`, and the raw-code table
+   above. Stop if it says calibration mode or retained RAM.
+3. Confirm a reset-bounded job completes at stable 2.10 V and the CNN output is
+   plausible. This is the known-good flashable check before changing voltage.
+4. Start a long scope acquisition of J7.1/J7.2 and the state-DAC node. Press
+   BTN0 to enter continuous mode.
+5. Hold near 2.20 V to show code 1/2/3 activity and the 1000-unit band, then
+   near 2.10 V for the 500-unit band, and near 2.00 V for the 100-unit band.
+6. Lower slowly through 2.00 V while a job is active. With dirty progress, the
+   expected one-time sequence is state 4 then state 5, followed by state 0.
+   Remaining below the threshold must not repeatedly rewrite the checkpoint.
+7. Raise above the raw-code restart boundary (about 2.10 V). Work should
+   continue from SRAM without state 6 if VDD never collapsed.
+8. In a separate power-fail test, first create a durable checkpoint, then let
+   VDD fall far enough to reset the MCU. Recharge above about 2.10 V. Expected
+   sequence: state 7 at boot, state 6 on MRAM restore, then state 2 or 3 from
+   the saved position. This is the recovery demonstration.
+
+Use a deliberately slow bench ramp for the first checkpoint capture. A fast
+RF replay is a later validation because the time from threshold crossing to
+brownout must be measured against the actual MRAM transaction duration.
+
+## Returning to calibration-only mode
+
+The earlier offline diagnostic remains available explicitly:
+
+```sh
+make -B \
+  EXAMPLE=bisen_camera_vdd \
+  PLATFORM=apollo4p_evb \
+  AS_VERSION=R4.5.0 \
+  BISEN_CAMERA_VDD_CALIBRATION_MODE=1 \
+  BISEN_CAMERA_ENABLE_MRAM=0
 ```
-
-`ADC_mode_after=0` confirms that the shared ADC owner restored the photodiode
-mode after reading VDD. A nonzero `ADCBATTLOAD` value is a stop condition for
-this validation because the app never requests the load resistor.
-
-## Physical calibration sequence
-
-First resolve or bound the supply-setpoint drop. Keep the programmed bench
-voltage at or below 2.20 V until it is understood, so a suddenly recovered
-connection cannot over-voltage the rail.
-
-For each safe point, use the offline-capture flow so the onboard J-Link USB
-cannot power or clamp the rail through the factory-closed SB3 path:
-
-1. Flash the diagnostic, open SWO, reset once, and confirm that it is armed.
-2. Keep the external supply connected, then close SWO and unplug only the
-   onboard J-Link USB. Do not press RESET and do not remove VDD.
-3. Set the source and wait for the rail to stabilize.
-4. Measure `VDD_MCU` directly between J7.1/J7.2 and J3.8 and record the DMM
-   voltage.
-5. Press BTN0 once and wait at least one second. The firmware captures one
-   numbered point into volatile SRAM; it performs no camera or MRAM work.
-6. Reconnect J-Link USB without pressing RESET, run `make view`, and press
-   BTN1 once. Record the printed point with the simultaneous DMM voltage.
-7. Confirm 32/32 valid samples, `ADC_mode_after=0`, and
-   `MCUCTRL_ADCBATTLOAD=0`.
-8. For another voltage, unplug J-Link USB again and repeat steps 3-7. The log
-   holds the newest sixteen points, enough for three repetitions at five
-   voltage setpoints.
-
-The log is in a `NOLOAD` TCM section. It normally survives an incidental MCU
-reset as long as VDD remains continuously powered, but it is not nonvolatile
-storage and must not be treated as valid after loss of board power. No MRAM
-program operation is called by this diagnostic.
-
-Start with approximately 1.80, 1.90, and 2.00 V measured at `VDD_MCU`. Do not
-use a bench setpoint above 2.20 V to reach the upper rail until the setpoint
-loss has been diagnosed. After the path is stable, add measured 2.10 and
-2.20 V points and repeat each point three times to quantify dispersion.
-
-No direct-VDD compute, wait, or checkpoint threshold will be selected from
-these points alone. Those thresholds require separate workload energy and
-brownout-margin measurements.

@@ -89,6 +89,35 @@
 #define BISEN_RESUME_VCAP_MV 6100
 #endif
 
+#ifndef BISEN_DIRECT_VDD_POLICY
+#define BISEN_DIRECT_VDD_POLICY 0
+#endif
+
+#ifndef BISEN_CAMERA_VDD_CHUNK1000_CODE
+#define BISEN_CAMERA_VDD_CHUNK1000_CODE 2553
+#endif
+#ifndef BISEN_CAMERA_VDD_CHUNK500_CODE
+#define BISEN_CAMERA_VDD_CHUNK500_CODE 2441
+#endif
+#ifndef BISEN_CAMERA_VDD_CHUNK100_CODE
+#define BISEN_CAMERA_VDD_CHUNK100_CODE 2333
+#endif
+#ifndef BISEN_CAMERA_VDD_SLEEP_CODE
+#define BISEN_CAMERA_VDD_SLEEP_CODE 2185
+#endif
+#ifndef BISEN_CAMERA_VDD_RESUME_CODE
+#define BISEN_CAMERA_VDD_RESUME_CODE 2441
+#endif
+
+#if BISEN_DIRECT_VDD_POLICY && \
+    (BISEN_CAMERA_VDD_CHUNK1000_CODE <= BISEN_CAMERA_VDD_CHUNK500_CODE || \
+     BISEN_CAMERA_VDD_CHUNK500_CODE <= BISEN_CAMERA_VDD_CHUNK100_CODE || \
+     BISEN_CAMERA_VDD_CHUNK100_CODE <= BISEN_CAMERA_VDD_SLEEP_CODE || \
+     BISEN_CAMERA_VDD_RESUME_CODE < BISEN_CAMERA_VDD_CHUNK100_CODE || \
+     BISEN_CAMERA_VDD_CHUNK1000_CODE > 4095)
+#error "Direct-VDD ADC-code thresholds must be ordered and 12-bit"
+#endif
+
 #ifndef BISEN_FORCE_DISABLE_MRAM_PROGRAMMING
 #define BISEN_FORCE_DISABLE_MRAM_PROGRAMMING 0
 #endif
@@ -354,11 +383,27 @@ struct EnergyPolicyConfig {
 };
 
 constexpr EnergyPolicyConfig kBenchEnergyPolicy = {
+#if BISEN_DIRECT_VDD_POLICY
+    2200u, 2100u, 2000u,
+    1900u,
+    2100u,
+#else
     8500u, 6400u, 5900u,
     5500u,
     BISEN_RESUME_VCAP_MV,
+#endif
     1000u, 500u, 100u,
 };
+
+// Raw BATT-channel policy anchors measured on this AMAP4PEVB Rev. 1. The
+// scheduler compares raw code so calibration-fit residuals cannot move a
+// state boundary. DMM voltage remains the physical reference for captures.
+constexpr uint32_t kVddChunk1000MinCode =
+    BISEN_CAMERA_VDD_CHUNK1000_CODE;
+constexpr uint32_t kVddChunk500MinCode = BISEN_CAMERA_VDD_CHUNK500_CODE;
+constexpr uint32_t kVddChunk100MinCode = BISEN_CAMERA_VDD_CHUNK100_CODE;
+constexpr uint32_t kVddSleepBelowCode = BISEN_CAMERA_VDD_SLEEP_CODE;
+constexpr uint32_t kVddResumeCode = BISEN_CAMERA_VDD_RESUME_CODE;
 
 enum class State : uint8_t {
     kWakeRestore = 0,

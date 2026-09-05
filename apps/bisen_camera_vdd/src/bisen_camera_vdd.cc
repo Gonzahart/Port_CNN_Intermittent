@@ -9,6 +9,7 @@
 #include "am_mcu_apollo.h"
 #include "am_util.h"
 #include "adc_shared.h"
+#include "bisen/bisen_config.h"
 #include "ckpt.h"
 #include "energy_source.h"
 #include "infer.h"
@@ -25,9 +26,6 @@
 
 #ifndef BISEN_CAMERA_ENABLE_MRAM
 #define BISEN_CAMERA_ENABLE_MRAM 1
-#endif
-#if BISEN_CAMERA_ENABLE_MRAM
-#error "bisen_camera_vdd stage 1 requires MRAM programming to remain disabled"
 #endif
 #ifndef BISEN_CAMERA_MAX_CHECKPOINTS
 #define BISEN_CAMERA_MAX_CHECKPOINTS 0
@@ -59,8 +57,8 @@
 #if BISEN_CAMERA_VDD_CALIBRATION_SAMPLES < 2
 #error "VDD calibration needs at least two ADC samples per DMM setpoint"
 #endif
-#if !BISEN_CAMERA_VDD_CALIBRATION_MODE
-#error "bisen_camera_vdd stage 1 is diagnostic-only; VDD policy thresholds are not yet calibrated"
+#if BISEN_CAMERA_VDD_CALIBRATION_MODE && BISEN_CAMERA_ENABLE_MRAM
+#error "VDD calibration mode requires BISEN_CAMERA_ENABLE_MRAM=0"
 #endif
 
 namespace {
@@ -524,12 +522,14 @@ void emit_result() {
         (unsigned long)g_ckpt_dev_hal_program_calls,
         (unsigned long)g_ckpt_dev_program_units,
         (unsigned long)g_ckpt_dev_bytes);
+#if ES_SOURCE == ES_SOURCE_VCAP
     am_util_stdio_printf(
         "BISen camera VCAP high-sample filter: ignored=%lu"
         " retry_exhaustions=%lu cutoff=%u mV\n",
         (unsigned long)pp_high_samples_ignored(),
         (unsigned long)pp_high_retry_exhaustions(),
         (unsigned)BISEN_CAMERA_VCAP_IGNORE_AT_MV);
+#endif
 }
 
 bool wait_for_energy(bool restore_threshold_required) {
@@ -541,14 +541,18 @@ bool wait_for_energy(bool restore_threshold_required) {
         if (pp_compute_allowed() &&
             (!restore_threshold_required || pp_restore_allowed())) {
             am_util_stdio_printf(
-                "BISen camera energy wait ended: polls=%lu VCAP=%lu mV band=%s\n",
+                "BISen camera energy wait ended: polls=%lu code=%lu"
+                " nominal_VDD=%lu mV band=%s\n",
                 (unsigned long)(wait + 1u),
+                (unsigned long)pp_adc_code(),
                 (unsigned long)pp_vcap_mv(), pp_band_name());
             return true;
         }
     }
     am_util_stdio_printf(
-        "BISen camera bounded energy wait expired: VCAP=%lu mV band=%s\n",
+        "BISen camera bounded energy wait expired: code=%lu"
+        " nominal_VDD=%lu mV band=%s\n",
+        (unsigned long)pp_adc_code(),
         (unsigned long)pp_vcap_mv(), pp_band_name());
     return false;
 }
@@ -564,7 +568,8 @@ bool run_bisen_job(bool restored_from_storage) {
         pp_sample();
         if (!reported_initial_energy) {
             am_util_stdio_printf(
-                "BISen camera initial energy: code=%lu VCAP=%lu mV band=%s\n",
+                "BISen camera initial energy: code=%lu nominal_VDD=%lu mV"
+                " band=%s\n",
                 (unsigned long)pp_adc_code(),
                 (unsigned long)pp_vcap_mv(), pp_band_name());
             reported_initial_energy = true;
@@ -588,8 +593,10 @@ bool run_bisen_job(bool restored_from_storage) {
             }
 
             am_util_stdio_printf(
-                "BISen camera wait: VCAP=%lu mV band=%s phase=%s position=%lu"
+                "BISen camera wait: code=%lu nominal_VDD=%lu mV band=%s"
+                " phase=%s position=%lu"
                 " live=%u dirty=%u job=%lu generation=%lu/%lu edge=%u\n",
+                (unsigned long)pp_adc_code(),
                 (unsigned long)pp_vcap_mv(), pp_band_name(),
                 phase_name(state.phase), (unsigned long)state.position,
                 (unsigned)state.dirty, dirty ? 1u : 0u,
@@ -614,7 +621,7 @@ bool run_bisen_job(bool restored_from_storage) {
         const wl_phase_t before = wl_current_phase();
         // One scan unit is a complete photodiode pixel and is about 1,300x
         // slower than one CNN unit in the supplied workload. Keep the direct
-        // BISen band budgets for inference, but never leave VCAP unobserved
+        // BISen band budgets for inference, but never leave VDD unobserved
         // across hundreds of camera pixels. One pixel is the smallest coherent
         // stop/checkpoint boundary exposed by the workload.
         if ((before == WL_PHASE_IDLE || before == WL_PHASE_SCAN) &&
@@ -679,15 +686,14 @@ int main() {
     pp_mark_boot();
 
     am_util_stdio_printf(
-        "\nBISen camera/CNN direct-VDD stage 1:"
+        "\nBISen camera/CNN direct-VDD full capture:"
         " AMAP4PEVB Rev. 1 / apollo4p_evb\n");
     am_util_stdio_printf(
         "BISen camera pins: pixel=J9.10/GPIO15/ADCSE4"
         " VDD=internal BATT(VDD/3), no GPIO"
         " state_bus=J12.7/.9/.11 GPIO62,63,61"
-        " BTN0=GPIO%u BTN1=GPIO%u\n",
-        (unsigned)AM_BSP_GPIO_BUTTON0,
-        (unsigned)AM_BSP_GPIO_BUTTON1);
+        " BTN0=GPIO%u\n",
+        (unsigned)AM_BSP_GPIO_BUTTON0);
 
 #if BISEN_CAMERA_VDD_CALIBRATION_MODE
     am_util_stdio_printf(
@@ -698,9 +704,18 @@ int main() {
 #endif
 
     am_util_stdio_printf(
-        "BISen camera energy=%s thresholds: 1000@8500 500@6400 100@5900"
-        " wait<5900 resume=6100 sleep<5500 mV; hysteresis=none\n",
-        es_source_name());
+        "BISen camera energy=%s raw-code policy: 1000@%u (~2.20 V DMM)"
+        " 500@%u (~2.10 V) 100@%u (~2.00 V) wait<%u"
+        " resume=%u (~2.10 V) sleep<%u (~1.90 V); hysteresis=none\n",
+        es_source_name(), (unsigned)bisen::kVddChunk1000MinCode,
+        (unsigned)bisen::kVddChunk500MinCode,
+        (unsigned)bisen::kVddChunk100MinCode,
+        (unsigned)bisen::kVddChunk100MinCode,
+        (unsigned)bisen::kVddResumeCode,
+        (unsigned)bisen::kVddSleepBelowCode);
+    am_util_stdio_printf(
+        "BISen camera direct-VDD thresholds are provisional behavior-capture"
+        " anchors from this EVB; DMM/scope VDD is the physical reference\n");
     am_util_stdio_printf(
         "BISen camera checkpoint backend=%s session_limit=%u (0=unlimited);"
         " dirty=job-generation; completion=tombstone-if-needed\n",
@@ -710,12 +725,8 @@ int main() {
         "BISen camera scheduler: scan_step_max=%u pixel, CNN_band_budget=100/500/1000 units\n",
         (unsigned)BISEN_CAMERA_SCAN_MAX_UNITS);
     am_util_stdio_printf(
-        "BISen camera VCAP high-sample filter: ignore >=%u mV,"
-        " immediate_retries=%u; exhausted retries enter wait\n",
-        (unsigned)BISEN_CAMERA_VCAP_IGNORE_AT_MV,
-        (unsigned)BISEN_CAMERA_VCAP_HIGH_SAMPLE_RETRIES);
-    am_util_stdio_printf(
-        "BISen camera VCAP decision estimator: discard=1 AVG16 median=3 AVG16"
+        "BISen camera VDD estimator: internal BATT(VDD/3), discard=1 AVG16"
+        " median=3 AVG16"
         " read_cost~%u us; threshold hysteresis=none\n",
         (unsigned)adc_shared_supply_cost_us());
     am_util_stdio_printf(

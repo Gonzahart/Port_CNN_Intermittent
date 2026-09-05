@@ -28,10 +28,12 @@
 #if BISEN_CAMERA_VCAP_HIGH_SAMPLE_RETRIES < 1
 #error "The high-VCAP discard filter requires at least one ADC attempt"
 #endif
+#if ES_SOURCE == ES_SOURCE_VCAP
 static_assert(
     BISEN_CAMERA_VCAP_IGNORE_AT_MV >
         bisen::kBenchEnergyPolicy.chunk_1000_min_vcap_millivolts,
     "The high-sample discard cutoff must remain above every compute band");
+#endif
 
 namespace {
 
@@ -317,6 +319,12 @@ extern "C" int wl_supply_mv(uint32_t *out_mv) {
     if (adc_shared_read_vcap(&code) != 0) return -1;
     *out_mv = bisen::calibrated_vcap_millivolts_from_code(code);
     return 0;
+#elif ES_SOURCE == ES_SOURCE_BATT
+    if (out_mv == 0) return -1;
+    uint32_t code;
+    if (adc_shared_read_supply(&code) != 0) return -1;
+    *out_mv = adc_shared_supply_nominal_millivolts(code);
+    return 0;
 #else
     // Not "0 mV" -- there is no supply source to read, and a caller must be
     // able to tell that apart from a rail that has collapsed.
@@ -408,13 +416,13 @@ extern "C" uint32_t pp_high_retry_exhaustions(void) {
 
 extern "C" void pp_report(void) {
     if (!s_valid) {
-        am_util_stdio_printf("POLICY: no valid VCAP reading\n");
+        am_util_stdio_printf("POLICY: no valid supply reading\n");
         return;
     }
     wl_state_t st;
     wl_state(&st);
     am_util_stdio_printf(
-        "POLICY: code=%u VCAP=%u mV [%s] band=%s chunk=%u restore=%u compute=%u"
+        "POLICY: code=%u nominal_supply=%u mV [%s] band=%s chunk=%u restore=%u compute=%u"
         " checkpoint_now=%u | workload=%s dirty=%u %u B ~%u us\n",
         (unsigned)s_raw_code, (unsigned)s_vcap_mv, es_source_name(),
         pp_band_name(), (unsigned)s_decision.chunk_pixels,

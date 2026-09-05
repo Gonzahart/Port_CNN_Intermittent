@@ -17,9 +17,6 @@
 
 namespace {
 
-#if ES_SOURCE != ES_SOURCE_BATT
-// The direct-VDD diagnostic deliberately has no policy thresholds yet. Other
-// source variants retain the existing camera application's level conversion.
 es_level_t level_from_mv(uint32_t mv) {
     if (mv < bisen::kBenchEnergyPolicy.sleep_below_vcap_millivolts) {
         return ES_LEVEL_CRITICAL;
@@ -29,7 +26,6 @@ es_level_t level_from_mv(uint32_t mv) {
     }
     return ES_LEVEL_OK;
 }
-#endif
 
 es_reading_t g_last;
 
@@ -276,20 +272,21 @@ void es_read(es_reading_t *out) {
         return;
     }
 
-    out->valid = 0;
+    out->valid = 1;
     out->discard_and_retry = 0;
     out->has_millivolts = 1;
     out->simulated = 0;
     out->millivolts = adc_shared_supply_nominal_millivolts(code);
-    out->level = ES_LEVEL_UNKNOWN;
+    out->level = level_from_mv(out->millivolts);
     out->warning_us = 0u;
     out->raw_code = code;
+    g_last = *out;
 }
 
 uint32_t es_read_cost_us(void) { return adc_shared_supply_cost_us(); }
 void es_set_load_uw(uint32_t microwatts) { (void)microwatts; }
 const char *es_source_name(void) {
-    return "VDD_MCU via internal BATT (VDD/3), diagnostic-only";
+    return "VDD_MCU via internal BATT (VDD/3)";
 }
 
 // ---------------------------------------------------------------------------

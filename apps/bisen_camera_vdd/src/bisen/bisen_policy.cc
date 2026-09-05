@@ -3,7 +3,15 @@
 namespace bisen {
 namespace {
 
-EnergyBand classify_energy(uint32_t vcap_millivolts) {
+EnergyBand classify_energy(const EnergyObservation &observation) {
+#if BISEN_DIRECT_VDD_POLICY
+    const uint32_t code = observation.corrected_adc_code;
+    if (code >= kVddChunk1000MinCode) return EnergyBand::kChunk1000;
+    if (code >= kVddChunk500MinCode) return EnergyBand::kChunk500;
+    if (code >= kVddChunk100MinCode) return EnergyBand::kChunk100;
+    return EnergyBand::kWait;
+#else
+    const uint32_t vcap_millivolts = observation.policy_vcap_millivolts;
     if (vcap_millivolts >=
         kBenchEnergyPolicy.chunk_1000_min_vcap_millivolts) {
         return EnergyBand::kChunk1000;
@@ -17,6 +25,7 @@ EnergyBand classify_energy(uint32_t vcap_millivolts) {
         return EnergyBand::kChunk100;
     }
     return EnergyBand::kWait;
+#endif
 }
 
 }  // namespace
@@ -28,12 +37,14 @@ EnergyStatus choose_energy_policy(const EnergyObservation &observation,
     }
 
     *decision = {};
+#if !BISEN_DIRECT_VDD_POLICY
     const uint32_t vcap = observation.policy_vcap_millivolts;
+#endif
 
     // Match the MSP430 reference and the validated bisen_port scheduler:
     // select the current action directly from the latest sample. There is no
     // previous-band retention and no hysteresis.
-    decision->band = classify_energy(vcap);
+    decision->band = classify_energy(observation);
     switch (decision->band) {
         case EnergyBand::kChunk1000:
             decision->chunk_pixels = kBenchEnergyPolicy.chunk_1000_pixels;
@@ -48,15 +59,29 @@ EnergyStatus choose_energy_policy(const EnergyObservation &observation,
             decision->chunk_pixels = 0u;
             break;
     }
+#if BISEN_DIRECT_VDD_POLICY
+    decision->restore_allowed =
+        observation.corrected_adc_code >= kVddResumeCode;
+#else
     decision->restore_allowed =
         vcap >= kBenchEnergyPolicy.resume_vcap_millivolts;
+#endif
     decision->temperature_allowed = decision->restore_allowed;
+#if BISEN_DIRECT_VDD_POLICY
+    decision->compute_allowed =
+        BISEN_ENABLE_COMPUTE_WORKLOAD != 0 &&
+        observation.corrected_adc_code >= kVddChunk100MinCode &&
+        decision->chunk_pixels != 0u;
+    decision->below_sleep_floor =
+        observation.corrected_adc_code < kVddSleepBelowCode;
+#else
     decision->compute_allowed =
         BISEN_ENABLE_COMPUTE_WORKLOAD != 0 &&
         vcap >= kBenchEnergyPolicy.chunk_100_min_vcap_millivolts &&
         decision->chunk_pixels != 0u;
     decision->below_sleep_floor =
         vcap < kBenchEnergyPolicy.sleep_below_vcap_millivolts;
+#endif
     return EnergyStatus::kReady;
 }
 
