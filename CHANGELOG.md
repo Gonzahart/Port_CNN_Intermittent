@@ -1,5 +1,37 @@
 # Changelog
 
+## [1.4.0](https://github.com/Gonzahart/Port_CNN_Intermittent/compare/v1.3.0...v1.4.0) (2026-09-24)
+
+
+### Features
+
+* Add GHA workflow for GitHub Pages  ([#292](https://github.com/Gonzahart/Port_CNN_Intermittent/issues/292)) ([d585bcb](https://github.com/Gonzahart/Port_CNN_Intermittent/commit/d585bcb5e117217d3e4081e9b5b7bc2575cf0e69))
+* AutoDeploy fixes for AP3/AP4 ([#296](https://github.com/Gonzahart/Port_CNN_Intermittent/issues/296)) ([026f967](https://github.com/Gonzahart/Port_CNN_Intermittent/commit/026f96792fb380f0f4b95e0fe0141d8975cb8dc9))
+* Make LiteRT optional for AutoDeploy. ([dff50ba](https://github.com/Gonzahart/Port_CNN_Intermittent/commit/dff50bafe06f295ccc910e7bf11be366babca1e2))
+* Make LiteRT optional for AutoDeploy. ([a027a63](https://github.com/Gonzahart/Port_CNN_Intermittent/commit/a027a63b9117228ef1946d324802a33b5847ef1e))
+* Pull in latest TFLM and HeliaRT. ([4681d47](https://github.com/Gonzahart/Port_CNN_Intermittent/commit/4681d47025dbe27f602005691866961504094c36))
+* Update TFLM v1.7 ([a5de31f](https://github.com/Gonzahart/Port_CNN_Intermittent/commit/a5de31f2b80244fcc8596cea95e0ddbe8ad32b91))
+* Use compatible LiteRT for AOT. ([57b959c](https://github.com/Gonzahart/Port_CNN_Intermittent/commit/57b959c65f34c5183de43d3c34f7e0cbdfe32cc2))
+
+
+### Bug Fixes
+
+* Add missing include. ([da16606](https://github.com/Gonzahart/Port_CNN_Intermittent/commit/da1660682a6d5c7ec8e643372e558c92c170d334))
+* Add missing include. ([dfd4cd6](https://github.com/Gonzahart/Port_CNN_Intermittent/commit/dfd4cd62a950398475e0008034f52c1a67043837))
+* Correct flattening input/output arrays. ([b1dcb2e](https://github.com/Gonzahart/Port_CNN_Intermittent/commit/b1dcb2e62104962b5eb22c78799059c46abdc3ba))
+* Correct flattening input/output arrays. ([4e1d6ea](https://github.com/Gonzahart/Port_CNN_Intermittent/commit/4e1d6ea4813de0214dbe10678762286050fc7b3f))
+* Enforce docs/index.md is used at root ([#293](https://github.com/Gonzahart/Port_CNN_Intermittent/issues/293)) ([247edba](https://github.com/Gonzahart/Port_CNN_Intermittent/commit/247edba0a6b8e56f10995b6400824f17aeeb7bc7))
+* Include padding when computing max arena size. ([09a1652](https://github.com/Gonzahart/Port_CNN_Intermittent/commit/09a165218a4b902c73652ea1750f7c1af44e42b5))
+* stabilize AutoDeploy PMU capture and chunking state ([#299](https://github.com/Gonzahart/Port_CNN_Intermittent/issues/299)) ([308c4e6](https://github.com/Gonzahart/Port_CNN_Intermittent/commit/308c4e631b52511ac9affb4a9261ec51d35b7b52))
+* Support python 3.10+ ([45f6032](https://github.com/Gonzahart/Port_CNN_Intermittent/commit/45f6032e81bf7ae6245b260628a25d796a004643))
+* Use __package__ for locating resources. ([50309cd](https://github.com/Gonzahart/Port_CNN_Intermittent/commit/50309cdfbf8d6951c5978492fb29617715fbd466))
+
+
+### Documentation
+
+* update HeliaAOT invocation guidance for uv --with-editable ([3222d17](https://github.com/Gonzahart/Port_CNN_Intermittent/commit/3222d17f8085fdf950b4bdad1be2843152861995))
+* update tensorflow runtime workflow and fix AOT config path ([df988cc](https://github.com/Gonzahart/Port_CNN_Intermittent/commit/df988ccb4acf83f0182dfb11f6faa3618306a6b4))
+
 ## [1.3.0](https://github.com/AmbiqAI/neuralSPOT/compare/v1.2.0...v1.3.0) (2026-02-03)
 
 
