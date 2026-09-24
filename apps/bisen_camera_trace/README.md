@@ -103,9 +103,14 @@ BISEN_TRACE_CAL_LOW_UV    = measured lower-point voltage in microvolts
 BISEN_TRACE_CAL_HIGH_UV   = measured upper-point voltage in microvolts
 ```
 
-Pass all four assignments to each subsequent `make -B` / `make -B deploy`
-command for this app, with `BISEN_TRACE_CALIBRATION_MODE=0` and
-`BISEN_CAMERA_ENABLE_MRAM=1`. The input is linearly extrapolated outside the
+The checked-in defaults are the 2026-09-09 board calibration: code 2041 at
+1.803 V and code 2609 at 2.300 V. Command-line values can still override them
+for another board or divider.
+
+For this board, subsequent `make -B` / `make -B deploy` commands can use those
+defaults. Pass all four assignments only when overriding the calibration for
+another board or divider. Use `BISEN_TRACE_CALIBRATION_MODE=0` and
+`BISEN_CAMERA_ENABLE_MRAM=1` for normal operation. The input is linearly extrapolated outside the
 calibration pair and clamped to zero for negative reconstructed voltage.
 Check intermediate points near all four thresholds before relying on precise
 crossing voltages. Do not adjust the virtual policy-code constants to calibrate

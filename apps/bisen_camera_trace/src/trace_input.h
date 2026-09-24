@@ -15,16 +15,16 @@
 // not a transfer of the internal-BATT calibration. Calibrate against the
 // actual voltage at the divider input using two measured code/voltage pairs.
 #ifndef BISEN_TRACE_CAL_LOW_CODE
-#define BISEN_TRACE_CAL_LOW_CODE 0
+#define BISEN_TRACE_CAL_LOW_CODE 2041
 #endif
 #ifndef BISEN_TRACE_CAL_HIGH_CODE
-#define BISEN_TRACE_CAL_HIGH_CODE 4096
+#define BISEN_TRACE_CAL_HIGH_CODE 2609
 #endif
 #ifndef BISEN_TRACE_CAL_LOW_UV
-#define BISEN_TRACE_CAL_LOW_UV 0
+#define BISEN_TRACE_CAL_LOW_UV 1803000
 #endif
 #ifndef BISEN_TRACE_CAL_HIGH_UV
-#define BISEN_TRACE_CAL_HIGH_UV 3570000
+#define BISEN_TRACE_CAL_HIGH_UV 2300000
 #endif
 #if BISEN_TRACE_CAL_LOW_CODE < 0 || BISEN_TRACE_CAL_HIGH_CODE > 4096 || \
     BISEN_TRACE_CAL_HIGH_CODE <= BISEN_TRACE_CAL_LOW_CODE || \

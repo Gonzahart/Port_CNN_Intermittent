@@ -1,0 +1,9 @@
+# Synthetic test levels in volts BEFORE the divider; not an RF measurement.
+2.25
+2.15
+2.05
+1.95
+1.95
+2.15
+1.85
+2.15
