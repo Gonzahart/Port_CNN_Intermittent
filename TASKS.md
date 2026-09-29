@@ -26,7 +26,7 @@ This file contains authorized shared tasks for ChatGPT and Codex. Codex should n
     - update only repository-verifiable sections of `PROJECT_STATE.md`;
     - leave bench-only conflicts marked `UNCONFIRMED`.
 
-- [x] **Install the four coordination files at repository root** (2026-09-28; documentation review pending)
+- [x] **Install the four coordination files at repository root** (2026-09-28; approved and committed)
   - Owner: Codex
   - Files: `AGENTS.md`, `PROJECT_STATE.md`, `TASKS.md`, `CODEX_LOG.md`.
   - Acceptance criteria:
@@ -35,14 +35,18 @@ This file contains authorized shared tasks for ChatGPT and Codex. Codex should n
     - any conflict with existing agent instructions is documented;
     - commit only after reviewing `git diff` and confirming no unrelated files are staged.
 
-- [ ] **Create a clean bridge baseline commit**
+- [x] **Create a clean bridge baseline commit**
   - Owner: Codex
   - Suggested commit message: `docs: add ChatGPT-Codex RUIC coordination state`
   - Acceptance criteria:
     - coordination files and any deliberate merge of an existing `AGENTS.md` are included;
     - no build artifacts, experiment CSVs, or unrelated firmware changes are included;
     - report the resulting hash after commit. Record it in a subsequent log update; do not amend a commit repeatedly to try to embed its own hash.
-  - Status: awaiting user review of the documentation diff; no commit or staging performed yet.
+  - Status: approved and committed as `dc4a95f7ca888b747fe6d2304ac938ee8f157023`; only the four coordination files were included.
+
+## Release automation
+
+- [x] Make inherited release automation manual-only for the research mirror: remove push and PR triggers from `.github/workflows/release.yaml`, preserving manual dispatch and existing jobs/configuration. Local configuration checked; awaiting commit/push to take effect on GitHub.
 
 ## Current hardware confirmation
 

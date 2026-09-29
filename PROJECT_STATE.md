@@ -222,5 +222,7 @@ Known documentation conflicts recorded without editing firmware or existing app 
 - Claims such as “validated thresholds,” exact-resume suite totals in source comments, and MRAM atomicity must be tied to named evidence before inclusion as paper results.
 - A coordination-only baseline excludes the already-untracked tools, traces, and build/flash scripts. Versioning those reproducibility inputs is a separate reviewed change.
 
-The documentation baseline commit is pending user review. Its eventual hash must be reported after the commit; a commit cannot embed its own final hash without changing that hash.
+The approved documentation baseline was committed as `dc4a95f7ca888b747fe6d2304ac938ee8f157023` (`docs: add ChatGPT-Codex RUIC coordination state`). Later repository revisions supersede that baseline; this release-workflow update was prepared against `main` at `a8f8fec65de056dbbfd4ada75e41bbfdc22213da`.
+
+**Release automation decision:** `Port_CNN_Intermittent` is a research firmware mirror, not the upstream neuralSPOT release repository. `.github/workflows/release.yaml` is configured for manual `workflow_dispatch` only; automatic push-to-main and PR triggers have been removed. Manual dispatch still permits inherited release-please and conditional GitHub Pages publication. Release configuration/manifest and `docs.yaml` remain unchanged. This local change takes effect on GitHub once committed and pushed; no hosted workflow run was performed.
 

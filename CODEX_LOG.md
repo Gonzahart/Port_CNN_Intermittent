@@ -4,6 +4,22 @@ Append new entries at the top. Do not rewrite old entries except to correct a fa
 
 ---
 
+## 2026-09-28 — Make inherited release automation manual-only
+
+**Branch / starting HEAD:** `main` / `a8f8fec65de056dbbfd4ada75e41bbfdc22213da`; working tree/index clean before this change.
+
+**Task and authorization:** user approved the proposed manual-only release workflow for the Port_CNN_Intermittent research firmware mirror and accompanying coordination update.
+
+**Files changed:** `.github/workflows/release.yaml`, `PROJECT_STATE.md`, `TASKS.md`, `CODEX_LOG.md`.
+
+- Removed only the `push` (main) and `pull_request` event triggers. Kept `workflow_dispatch`, all job definitions/permissions, release-please configuration/manifest, and the reusable documentation workflow unchanged.
+- Automatic pushes/PR events will no longer start this release workflow after the change reaches GitHub. Explicit manual dispatch can still create releases and conditionally publish Pages. The retained PR-only lockfile job cannot run with the manual-only trigger.
+- Recorded the baseline commit `dc4a95f7ca888b747fe6d2304ac938ee8f157023` and completed its task; earlier pending-review log entries are historical. Current HEAD has advanced beyond that baseline. No firmware reconciliation or experimental-status promotion was performed.
+
+**Validation:** compare the workflow with starting HEAD to verify the exact trigger-only edit and identical jobs; check JSON configuration/manifest parsing and `git diff --check`. No firmware build, host firmware test, physical validation or hosted Actions run is needed or claimed for this configuration change. No commit or push performed in this task; remote automation is unchanged until deployment of the edit.
+
+---
+
 ## 2026-09-28 — User-confirmed hardware and V1–V13 synchronization (documentation only; approval pending)
 
 **Scope:** apply remaining project-state updates, preserving the completed repository reconciliation and canonical `/Users/ghart/Documents/Ambiq/neuralSPOT` configuration. No repository migration, firmware edits, build, flash or new hardware test was performed.
