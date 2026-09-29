@@ -1,6 +1,6 @@
 # RUIC Project State
 
-**Status date:** 2026-09-28  
+**Status date:** 2026-09-29
 **Project:** Apollo4 intermittent camera-inference framework / BISen-derived RUIC research  
 **Purpose of this file:** shared, concise state for ChatGPT and Codex. It intentionally distinguishes verified history from current direction and unresolved timeline conflicts.
 
@@ -8,7 +8,7 @@
 
 **CURRENT/DIRECTION**
 
-Develop and experimentally evaluate an energy-aware intermittent camera-inference framework on Ambiq Apollo4. The current camera/harvest software targets Apollo4 Plus (`apollo4p_evb`); the older Sobel bring-up targeted Blue Plus KXR. The current physical platform is **AMAP4PEVB Apollo4 Plus BGA Evaluation Board, Rev. 1.0**, explicitly confirmed by the user on 2026-09-28. The current research direction removes BISen's compulsory Stop transition between useful application phases, samples stored energy at fine-grained scheduler boundaries, executes bounded coherent work, and checkpoints only when low energy makes durable progress necessary.
+Develop and experimentally evaluate an energy-aware intermittent camera-inference framework on Ambiq Apollo4. The current camera/harvest software targets Apollo4 Plus (`apollo4p_evb`); the older Sobel bring-up targeted Blue Plus KXR. The current physical platform is **AMAP4PEVB Apollo4 Plus BGA Evaluation Board, Rev. 1.0**, explicitly confirmed by the user on 2026-09-28. The primary paper direction is the custom incremental CNN engine, controlled same-model speed/energy comparisons, correct completed classifications under intermittent replay, and checkpoint/MRAM energy. The implemented scheduler omits compulsory Stop between useful phases, samples energy at fine-grained boundaries, executes bounded work and selectively checkpoints; these are supporting mechanisms. Dedicated Stop and layer-boundary comparisons are deferred to a later paper.
 
 Energy-aware scheduling should preserve inference semantics: energy state changes the amount of exact work performed before the next energy decision, not the model quality, unless a separate approximation experiment is explicitly defined.
 
@@ -168,14 +168,16 @@ Primary end-to-end metrics planned:
 
 **DIRECTION**
 
-The working paper proposes controlled comparisons against:
+The September 29 downloaded planning update supersedes the older comparison priorities:
 
-- monolithic TensorFlow Lite Micro (TFLM);
-- a SunSift-style layer-granular policy port on the same Apollo4/common model;
-- an ablation of the proposed runtime that restores compulsory Stop transitions;
-- Capuchin as a model-deployment baseline, with direct energy/latency comparison only if the same model/input/platform can be ported defensibly.
+- Custom output-stationary (OS) and input-stationary (IS) engines versus same-model Apollo4 TFLM; separately identify reference-int8 and CMSIS-NN configurations and actual kernel fallbacks.
+- V0 continuous-power comparison is **reported performed in the supplied update; results, methods and raw artifacts are pending receipt/review**. Do not label it unrun or demand an automatic rerun. No numeric speedup/energy result is verified here.
+- V11 counts correct, committed classifications in fixed PT1/PT2/PT3 windows, with inference-only and full camera-plus-inference results separate.
+- V14 measures full production-checkpoint energy and low-level MRAM-program intervals with matched control measurements; board-rail measurements do not isolate the MRAM array itself.
+- Capuchin remains conditional on model/operator/arithmetic equivalence and an actual same-Apollo4 port. The deployed RUIC graph uses average pooling; [Capuchin's published support list](https://github.com/leleonardzhang/Capuchin) includes max pooling, not average pooling. This requires source-level feasibility work, not an automatic rejection or silent operator substitution.
+- V5 compulsory-Stop and V6 SunSift-style layer-boundary studies are **DEFERRED/out of scope for this paper**. V13 switched divider remains optional, not adopted.
 
-For V1–V13, preserve controlled variables as applicable: board/revision, power path, reservoir capacitance, regulated rail, divider and ADC calibration, thresholds and work budgets, model/weights/quantization, inputs and acquisition/preprocessing, MCU clock, compiler/build flags, trace and replay scaling/timing, initial capacitor energy, and measurement/probe/shunt configuration. Record firmware identity and every deliberate variation. Change only the intended ablation variable; when a variable must differ, disclose it and limit comparison claims. V12 changes the power path deliberately; V13 changes divider switching only if adopted.
+For V0–V14 preserve board/revision, power path, reservoir, rail, divider/calibration, thresholds/budgets, model/weights/quantization, input bytes/order, acquisition/preprocessing, clock, compiler flags, memory placement, logging, trace/scaling/timing, measured initial VCAP, and probe/shunt configuration. Record source/binary/model/input hashes. Pair replay runs and initially collect at least five per runtime/trace, randomizing runtime order where practical. Identical FG commands do not imply identical delivered energy or loaded VCAP. Changed model or precision requires a separately qualified task-level comparison. The detailed gates are in `TASKS.md` and `docs/RUIC_CNN_Port_Equivalence_Checklist.md`.
 
 ## 9. Validation status and open work
 
@@ -186,27 +188,39 @@ For V1–V13, preserve controlled variables as applicable: board/revision, power
 - Cold scan/CNN restore is implemented. User-reported September cold-restore/replay results are prior functional evidence in the conversation, but a versioned camera validation report with its raw evidence and exact binary identity was not found in the inspected repository. Do not label cold-restore implementation absent, or declare a new on-target pass from source/tests alone.
 - App README calibration/cold-restore/replay sections are newer context than the historical `bisen_port/HANDOFF.md`. The user confirmation in section 6 now establishes the current board and listed power components; remaining wiring and measurement details still need bench records.
 
-**OPEN — shared V1–V13 validation program**
+**OPEN / DEFERRED — shared V0–V14 validation program**
 
 Implementation is not validation: incremental CNN scheduling, selective checkpointing, persistent sessions, and 100/500/1000 work budgets already exist. Their physical and end-to-end validation remains open. Build success is not physical validation, and host tests are not hardware validation. Detailed acceptance evidence and controlled variables are recorded in `TASKS.md`.
 
 | ID | Validation scope | Current evidence / remaining work |
 |---|---|---|
+| V0 | Continuous-power engine comparison | Reported performed in the supplied September 29 update; evidence and conditions pending review. No measured ranking verified here. |
 | V1 | Float/int8 MNIST accuracy and model/export lineage | Deployed weights exist; source model, exporter lineage, held-out accuracy and disagreement evidence remain unverified. No `export_weights.py` was found in the reconciliation inventory. |
 | V2 | Uninterrupted vs interrupted/restored inference equivalence | Incremental exact execution and restore are implemented; validate equivalent outputs/progress across representative interruptions using identical inputs. Separate scene changes during scanning from arithmetic correctness. |
 | V3 | Live ADC/scheduler thresholds | GPIO16 sensing, calibrated conversion, budgets and resume gate are implemented; validate physical readings and decisions at boundaries. |
 | V4 | Production checkpoint → true cold restore | Production MRAM and session persistence exist, with prior user-reported functional evidence; archive exact binary/raw evidence and validate cold restore and interrupted writes at representative scan/CNN positions. |
-| V5 | Compulsory-Stop ablation | Controlled comparison remains open; do not infer its completion from the current direct-transition scheduler. |
-| V6 | Same-platform SunSift-style layer-granular baseline | Common-model baseline setup and comparative validation remain open. |
-| V7 | Same-platform monolithic TFLM baseline | General SDK TFLM support is not a validated RUIC baseline; common-model comparison remains open. |
+| V5 | Compulsory-Stop ablation | DEFERRED to a later paper; no current implementation task. |
+| V6 | Same-platform SunSift-style layer-granular baseline | DEFERRED to a later paper; no current implementation task. |
+| V7 | Same-platform TFLM reference/CMSIS-NN variants | Review V0 artifacts before deciding what is missing; pin model/operators/kernels and validate ten scores, accuracy, memory, stable-power and reboot behavior. SDK support alone is insufficient. |
 | V8 | Capuchin feasibility/common-model comparison | Establish whether a defensible common-model/platform comparison is feasible before performance claims. |
 | V9 | PT1/PT2/PT3 provenance and replay calibration | Local replay assets exist; PT mapping, provenance, units, timing, scaling and loaded-path calibration remain unconfirmed. |
 | V10 | Synchronized state-resolved energy | Acquire synchronized VCAP/VDD/current/state, audit marker coverage, and measure per-state energy and joules/completed frame. |
 | V11 | End-to-end runtime under identical intermittent traces | Repeated completion/latency/progress-loss comparison remains open; count results independently of short state markers. |
 | V12 | MP1584EN → TPS7A0220 power-path revalidation | Planned LDO is not installed; repeat threshold/reserve/discharge/dropout/energy validation after replacement. |
 | V13 | Optional TS5A3167 switched-divider ablation | Switch is available but not installed/adopted; optional future validation only. |
+| V14 | Production MRAM and full-checkpoint energy | Existing backend has logical-write/byte/HAL-call counters and a 64-byte bounce buffer; focused interval instrumentation, matched controls and physical energy distributions remain to be established. |
 
 Checkpoint-header integrity and full marker timing coverage remain review items for V4/V10 before broad atomicity or per-state energy claims. No firmware behavior was changed in reconciliation or this synchronization.
+
+### 2026-09-29 assessment addendum — implementation planning
+
+Inspected local `main` at `190c4f503` with a clean worktree. See [updated V0–V14 implementation assessment](docs/RUIC_VALIDATION_IMPLEMENTATION_PLAN.md) for proposed changes, prerequisites and sequence. No new firmware or hardware validation is claimed.
+
+- **CURRENT:** `apps/bisen_camera_harvest_IS` adds an input-stationary/SIMD candidate. The existing root replay helper still selects `bisen_camera_harvest` with its output-stationary default. The IS module selects dataflow 1/SIMD 1 but retains the original binary name/linker reference; its included `nn_build.h`, `nn_simd.h`, and `nn_wo.h` exist only under the original app. Standalone integration/build verification remains open. Both weight headers are byte-identical. The CHANGES-r2a engine-replacement note does not match the original app's current engine/module; do not infer deployment or new test passes from it.
+- **CURRENT correction to earlier inventory:** replay helpers, tools and trace files are now tracked. Their earlier untracked status remains historical. PT1/PT2/PT3 mapping and calibration are still unresolved.
+- **V12 constraint:** TPS7A0220 supports recommended input only through 6.0 V (absolute maximum 6.5 V), so it cannot directly accept the current 7.5–8 V reservoir. [TI datasheet](https://www.ti.com/lit/ds/symlink/tps7a02.pdf). The replacement plan must first choose a lower reservoir range with transient margin or a regulator rated for the existing range. Recalibrate policy gates, FG ceiling and energy reserve together; installed hardware remains MP1584EN.
+- **Measurement gap:** the capture script estimates reservoir energy change, not shunt-integrated board energy; its default capacitance is 0.1 F rather than installed 0.01 F. Use `--no-energy` for state-only runs, or explicit `--cap-f 0.01` for labeled reservoir-change calculations. Simultaneous charging prevents treating net reservoir change as consumed board energy.
+- **DIRECTION:** deterministic input/score checks, interruption harnesses, bounded policy diagnostics, full restore-marker coverage, independent cross-outage completion accounting and synchronized shunt analysis precede final comparative runs. Existing SRAM statistics/offline summaries do not provide durable experiment history across power loss. Changing CNN dataflow requires work/checkpoint energy recharacterization even if numerical chunk budgets remain unchanged.
 
 ## 10. Coordination and documentation caveats
 
@@ -220,7 +234,13 @@ Known documentation conflicts recorded without editing firmware or existing app 
 - The RF-replay README section uses CH4=VCAP / CH1=VDD / CH2=state DAC, while its final generic scope paragraph reverses CH1/CH4. The replay workflow uses the former mapping and normalizes state DAC by board VDD; confirm probes per experiment.
 - Legacy divider/voltage constants and self-driving inference comments remain in shared/copied files. Follow the compiled `ES_SOURCE=5` and `WL_EXTERNAL_DRIVER=1` paths, not isolated comments.
 - Claims such as “validated thresholds,” exact-resume suite totals in source comments, and MRAM atomicity must be tied to named evidence before inclusion as paper results.
-- A coordination-only baseline excludes the already-untracked tools, traces, and build/flash scripts. Versioning those reproducibility inputs is a separate reviewed change.
+- The original coordination baseline excluded then-untracked replay assets; these are now tracked in later commits. Their historical exclusion does not describe the current inventory.
 
-The documentation baseline commit is pending user review. Its eventual hash must be reported after the commit; a commit cannot embed its own final hash without changing that hash.
+The approved documentation baseline was committed as `dc4a95f7ca888b747fe6d2304ac938ee8f157023` (`docs: add ChatGPT-Codex RUIC coordination state`). Later repository revisions supersede that baseline; this release-workflow update was prepared against `main` at `a8f8fec65de056dbbfd4ada75e41bbfdc22213da`.
 
+**Release automation decision:** `Port_CNN_Intermittent` is a research firmware mirror, not the upstream neuralSPOT release repository. `.github/workflows/release.yaml` is configured for manual `workflow_dispatch` only; automatic push-to-main and PR triggers have been removed. Manual dispatch still permits inherited release-please and conditional GitHub Pages publication. Release configuration/manifest and `docs.yaml` remain unchanged. The change is included in current HEAD `190c4f503`; no hosted workflow run was performed.
+
+
+### 2026-09-29 downloaded-plan reconciliation
+
+The Downloads copies were planning/scratch exports, not newer live repository snapshots. Their pending migration/bridge tasks, unresolved app/threshold/layout findings and absent-baseline assumptions were not imported over the completed reconciliation. The duplicate port checklists are byte-identical; one canonical copy is retained in `docs/`. The imported statement that the continuous-power comparison has not been measured conflicts with its own latest dated update; the reconciled status is performed, evidence pending review. No hardware installation, firmware deployment or experimental pass is implied by this synchronization.

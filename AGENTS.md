@@ -164,7 +164,7 @@ Use these labels in `PROJECT_STATE.md`:
 - Do not guess board pins, resistor values, MRAM addresses, thresholds, HAL behavior, jumper settings, or power-path details.
 - Do not claim a voltage threshold is energy-safe until it is physically validated with the actual capacitor, regulator/converter, workload, checkpoint path, and board configuration.
 - A power-path change, including MP1584EN → TPS7A0220, requires renewed work/checkpoint/resume threshold, capacitor-reserve, discharge, dropout and energy validation; old safety/energy conclusions do not automatically transfer.
-- Preserve the applicable V1–V13 controlled variables and evidence requirements in `TASKS.md`; record intentional ablations and disclose other differences rather than silently comparing unmatched configurations.
+- Preserve the applicable V0–V14 controlled variables and evidence requirements in `TASKS.md`; record intentional ablations and disclose other differences rather than silently comparing unmatched configurations.
 - Build success is not physical validation. Host tests are not hardware validation; implemented functionality does not close a physical or end-to-end validation task.
 - Energy adaptation may change scheduling/chunk size; it must not silently change inference quality unless a task explicitly studies approximate inference.
 - Do not overwrite raw experiment data.
