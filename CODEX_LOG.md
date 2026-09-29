@@ -4,6 +4,40 @@ Append new entries at the top. Do not rewrite old entries except to correct a fa
 
 ---
 
+## 2026-09-29 — Reconcile supplied ChatGPT testing priorities with live repository
+
+**Branch / HEAD:** `main` / `190c4f503d509aa7e64c64c764ec02b1cfd2ef33`. Canonical root remains `/Users/ghart/Documents/Ambiq/neuralSPOT`. Initial worktree contained the prior assessment's modified PROJECT_STATE/TASKS/CODEX_LOG and untracked implementation-plan document; no firmware changes were present. No migration or Git configuration changes performed.
+
+**Inputs:** Downloads PROJECT_STATE.md, TASKS.md, CODEX_LOG.md and both RUIC_CNN_Port_Equivalence_Checklist copies, plus the user's screenshot explaining the scratch/live-workspace mismatch. Checklists compare byte-identically. No hardware-preview PDF was supplied/read in this turn. Imported documents are planning evidence, not proof of implementation or physical results.
+
+**Files changed:** PROJECT_STATE.md, TASKS.md, CODEX_LOG.md, one V0–V14 range update in AGENTS.md, revised docs/RUIC_VALIDATION_IMPLEMENTATION_PLAN.md and one canonical docs/RUIC_CNN_Port_Equivalence_Checklist.md. Preserved all existing AGENTS rules and local log history; did not replace live coordination files wholesale with Downloads copies.
+
+**Reconciled direction:** CNN-engine comparisons and correct completed replay classifications are primary; add V0 and V14, expand V7 reference/CMSIS-NN and V8 equivalence gates, defer V5/V6 to a later paper. V0 is reported performed with evidence pending review; no speedup or hardware pass is asserted. Preserve V1–V4/V9–V13 controls and all source-derived app/ADC/policy/checkpoint/session findings. The earlier V1–V13-only assessment order is superseded by the updated plan.
+
+**Conflicts corrected:** scratch pending migration/bridge/app-location/threshold/layout items contradict the completed baseline/live inspection and were not imported. The scratch statement that continuous-power results have not been measured conflicts with its latest dated update; retained performed/evidence-unreviewed status. Older active V5/V6 wording is superseded by their deferral. Corrected the four-channel measurement budget: two shunt endpoints (one is VDD), DAC and VCAP fit; an extra HAL marker requires a different acquisition arrangement. Preserved the verified TPS7A0220 voltage incompatibility rather than importing an unconditional drop-in replacement instruction. Current HEAD already includes the release workflow edit; corrected its stale pending-commit wording without claiming a hosted Actions run.
+
+**Source checks:** rechecked OS/IS module/header references and production `ckpt_mram.c`/`ckpt.c`: 64-byte bounce buffer, actual HAL call with masked interrupts, counters, payload and header-last save path. These support a focused production-backend V14 harness, not a replacement checkpoint implementation. Confirmed official Capuchin README support list and TI input limit; full Capuchin source/operator/precision audit remains pending.
+
+**Validation:** documentation diff/whitespace and scope checks only, duplicate-file comparison and read-only source/vendor inspection. Build, host firmware tests, board tests and energy measurements NOT RUN. No source, linker, instrument script, raw capture or deployed firmware changed. No commit/push. Full firmware implementation remains proposed, not authorized by embedded planning text.
+
+---
+
+## 2026-09-29 — V1–V13 feasibility and implementation assessment
+
+**Branch / HEAD:** `main` / `190c4f503` (`Update release workflow`); initially clean worktree. Consulted all four coordination files, then current app/module/checkpoint/instrument scripts and the new IS app. The local backlog inspected is V1–V13.
+
+**Files changed:** `docs/RUIC_VALIDATION_IMPLEMENTATION_PLAN.md`, `PROJECT_STATE.md`, `TASKS.md`, `CODEX_LOG.md`. Documentation only; proposed firmware profiles, harnesses and analysis tools are not implemented.
+
+**Findings:** original replay helper still builds OS harvest; newer IS/SIMD candidate is not captured in the earlier state. Three required headers exist only in the original app; IS module retains original binary name/linker reference. No standalone build success inferred. The two weight headers match byte-for-byte. Source work units/checkpoint footprints require separate energy characterization before switching engines. Local tools/traces are now tracked, superseding earlier inventory. Scope energy helper is net capacitor change, defaults to 0.1 F, and lacks measured shunt integration. Existing retained-SRAM/offline counters do not preserve whole-run history across true power loss.
+
+**Hardware constraint:** verified TPS7A02 input range against TI product/datasheet (https://www.ti.com/lit/ds/symlink/tps7a02.pdf): recommended maximum 6.0 V, absolute maximum 6.5 V. Planned TPS7A0220 cannot be directly connected to the present 7.5–8 V reservoir. V12 needs a lower-voltage design or an appropriately rated regulator before threshold/energy revalidation. This is a planning correction, not a claim that hardware changed.
+
+**Plan:** preserve known-good OS/MP1584EN setup for initial functional tests; add deterministic vectors/equivalence and production-path interruption harnesses, bounded policy diagnostics, accurate state/completion instrumentation and synchronized shunt analysis; then implement controlled comparison variants and revalidate the selected final power path. V1–V13 remain open. V13 remains optional.
+
+**Validation performed:** read-only source/Git inspection, missing-header existence checks, exact deployed-weight-header comparison, vendor specification lookup and documentation diff checks. Firmware build, host correctness suites and physical validation NOT RUN. No firmware files, instrument scripts, data or Git configuration changed; no commit/push. Source comments reporting external engine benchmarks are not treated as locally reproduced results.
+
+---
+
 ## 2026-09-28 — Make inherited release automation manual-only
 
 **Branch / starting HEAD:** `main` / `a8f8fec65de056dbbfd4ada75e41bbfdc22213da`; working tree/index clean before this change.
