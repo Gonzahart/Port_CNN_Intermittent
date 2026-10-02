@@ -87,6 +87,37 @@ the raw code/DMM pairs are the calibration evidence. A complete VDD loss
 erases this calibration log. Its `HVCC` identity prevents old trace-app
 calibration records from being mistaken for physical VCAP measurements.
 
+### Paired ADC-path diagnostic (opt-in, no workload or MRAM writes)
+
+Build from the repository root with the additional
+`BISEN_HARVEST_ADC_DIAG_COMPARE=1` flag. This calibration-only image alternates
+on successive BTN0 captures: record 1 uses the existing per-reading ADC mode
+switch, record 2 holds the ADC in supply mode throughout all 32 readings,
+record 3 switches again, and so on. Both modes still discard one AVG16 result
+and take the median of three per reported reading. The image rejects a failed
+HAL FIFO read, empty result, or wrong slot, and retains error counts with each record. It also retains the 32 decision
+codes in capture order (`65535` marks a failed read) and prints an `ADC ordered`
+line for each record on BTN1, after J-Link is reconnected. These are the
+median-of-three, hardware-AVG16 policy readings, not uncorrected individual
+conversions. This revised record layout invalidates older retained diagnostic
+logs on reflash; start with a fresh log. Its compile flag defaults to 0 and is
+rejected in full firmware.
+
+For a GPIO17/ADCSE2 path investigation, also set
+`BISEN_HARVEST_DIAG_SUPPLY_PIN=17` and physically connect the divider junction
+to GPIO17. This selection is calibration-only; the production path remains
+GPIO16/ADCSE3. Place CH4 and the DMM at the selected ADC pad. Do not apply a
+GPIO17 calibration to the production GPIO16 image.
+
+At one fixed FG setting, measure VCAP and GPIO16 with a DMM while J-Link is
+disconnected. Capture CH1 board VDD, CH2 state DAC, CH3 live MP1584EN input,
+and CH4 at the **board GPIO16 pad**, all referenced to board ground. Press
+BTN0 twice without changing voltage, probes, or J-Link state. Reconnect
+J-Link while maintaining board power and press BTN1. Compare the switched and
+held `code_mean`, range, valid count, and error counters. Do not turn these
+diagnostic values into new policy calibration anchors until the discrepancy
+is explained and repeated at a second stable VCAP setpoint.
+
 ## Build 2: full camera/CNN/MRAM behavior
 
 Measure all four physical VCAP thresholds first. At minimum, determine the
@@ -296,3 +327,17 @@ subtract, or a differential probe.
 The ADC conversion range and MP1584 input range cited above come from the
 [Ambiq Apollo4 Plus datasheet](https://ambiq.com/wp-content/uploads/2022/03/Apollo4-Plus-SoC-Datasheet.pdf)
 and [MPS MP1584 product page](https://www.monolithicpower.com/en/products/power-management/switching-converters-controllers/step-down-buck/converters/mp1584.html).
+
+
+## State-DAC completion notification (2026-09-29)
+
+Successful checkpoint, retirement and session writes emit code 5 after their
+code-4 write interval. This is a completion notification like the inspected
+MSP430 reference, not a second write phase. It remains on the state bus until
+the next marked activity; no fixed pulse duration or extra delay is added.
+Commit counters, return-value checks, header-last storage writes and error
+handling remain intact. Other DAC codes retain their numbers. Code 5 can also
+follow session and retirement writes, so it alone is not a workload checkpoint
+count. See `docs/RUIC_STATE_DAC.md` for the mapping, MSP430 comparison, wait
+behavior and restore-energy instrumentation limitation. Rebuild and flash to
+apply this change; existing captures/binaries retain their previous behavior.

@@ -113,7 +113,22 @@ These thresholds describe the configured functional baseline; final energy-safe 
 - Replay mode starts disarmed on fresh storage. BTN0 durably arms continuous jobs; BTN1 stops at a coherent boundary, saves dirty progress, durably disarms, and parks. An armed session survives reset/power loss. RESET is therefore not a stop in this mode. A later BTN0 re-arms/resumes a deliberately stopped session.
 - At startup, `restore_pending_workload()` reads/adopts storage before the scheduler's voltage gate; the higher 6.8 V gate controls subsequent useful execution. Do not describe all storage reads as deferred until 6.8 V.
 
-State bus output bits 0/1/2 use GPIO62/63/61 (documented intended header J12.7/.9/.11). `power_policy.cc` maps: 0 sleep/inactive/wait; 1 ADC; 2 camera; 3 compute; 4 nonvolatile write; 5 committed/retired/session update; 6 restore marker; 7 boot/error. These are instrumentation codes, not a full description of policy state. Code 3 also includes preprocessing, and `pp_leave_wait()` briefly emits it. Code 6 for inference is emitted after `infer_init()` has read the checkpoint, so marker duration is not a complete restore-energy interval. Brief code 5/6 events can be missed by coarse scope sampling; a state-3 episode alone is not a reliable completed-frame counter.
+State bus output bits 0/1/2 use GPIO62/63/61 (documented intended header J12.7/.9/.11). `power_policy.cc` maps: 0 sleep/inactive/wait; 1 ADC; 2 camera; 3 compute; 4 nonvolatile write/save; 5 successful-write completion notification; 6 restore marker; 7 boot/error. These are instrumentation codes, not a full description of policy state. Code 5 is emitted after successful checkpoint, session and retirement writes and remains until the next activity; it is not a second checkpoint operation or a fixed-width pulse. Code 3 also includes preprocessing, and `pp_leave_wait()` briefly emits it. Code 6 for inference is emitted after `infer_init()` has read the checkpoint, so marker duration is not a complete restore-energy interval. Internal commit/session accounting and error handling remain intact. This applies to original harvest, IS and nested OS sources; the original replay ARM build passed on 2026-09-29, while IS/OS rebuilds, flashing and bench confirmation remain pending. A state-3 episode alone is not a reliable completed-frame counter.
+
+**CURRENT sleep/wait correction (source and active module settings):** The current
+MSP430 `Image_Sobel_5969/main.c` emits an explicit code-5 FRAM checkpoint
+pulse after persistence, then uses an energy wait: LPM3 timer sleep or,
+below the 2.0 V run floor with LFXT available, LPM3.5 (`PMMREGOFF`) with RTC
+wake. These are not separate checkpoint processing states. Apollo4
+`wait_for_energy()` also marks code 0 and sleeps/rechecks VCAP, with
+`BISEN_CAMERA_WAIT_US=250000` by default. Active harvest modules specify
+`BISEN_CAMERA_SCAN_IDLE_MODE=1`, using NORMAL sleep after a working STIMER
+self-test or spin fallback. Apollo4 DEEP sleep exists behind mode 2, but is
+not the current build selection and its STIMER/HFRC wake and current are not
+physically validated. DAC code 0 identifies inactive/wait, not a proven MCU
+sleep mode. Apollo4 power-off/standby equivalent remains real loss of board
+power with MRAM restore, not an implemented voltage-triggered deep-standby
+transition. See [the source-based comparison](docs/RUIC_STATE_DAC.md).
 
 ## 6. Current physical hardware and power-path plans
 
@@ -138,7 +153,27 @@ State bus output bits 0/1/2 use GPIO62/63/61 (documented intended header J12.7/.
 
 **HISTORICAL:** the August 1000 uF / LM2596 / Blue Plus Sobel setup remains separate from this current camera/CNN configuration. Earlier discussion of lower-IQ regulation and divider switching was planning, not evidence of installation.
 
-**UNCONFIRMED:** the installed divider-filter capacitor (the harvest README proposes 10 nF), exact camera hardware, and current EVB/J-Link/USB/extra-supply isolation and jumper details still need an experiment-specific bench record. The confirmed board and component values above do not prove those remaining wiring details or energy-safe thresholds. Source defaults and configured calibration anchors remain implementation evidence only.
+**USER-CONFIRMED:** the 10 nF divider-filter capacitor is installed at the GPIO16 junction. **UNCONFIRMED:** exact camera hardware and current EVB/J-Link/USB/extra-supply isolation and jumper details still need an experiment-specific bench record. The confirmed board and component values above do not prove those remaining wiring details or energy-safe thresholds. Source defaults and configured calibration anchors remain implementation evidence only.
+
+**User-reported bench update (2026-09-29):** a shunt and corresponding scope
+probes have been added for the MRAM energy test. The planned value is 1 Ω;
+actual resistance, placement/polarity, probe mapping and bypass-power
+isolation require direct measurement before interpreting energy. A controlled
+FG-command profile and shunt-analysis helper are present in the repository;
+no V14 bench capture has yet been validated.
+
+**Same-node scope zero diagnostic (2026-09-29):** user reports CH1 and CH4
+tips both on the MP1584EN side of the shunt, with matched 1× probes,
+500 mV/div and −1.52 V offsets. The provided `v14_zero_01.csv` has 700,000
+CH1/CH4 samples over 14 s (20 µs spacing), but no CH2 DAC or CH3 VCAP
+columns. Direct CSV analysis gives CH1−CH4 median 0 mV, mean +3.13 mV,
+standard deviation 15.90 mV, and 5th/95th percentiles −20/+20 mV;
+the recorded voltage levels change in 20 mV steps. This is diagnostic
+channel mismatch/quantization evidence, **not** a validated shunt-current
+zero for milliamp-scale energy integration. Repeat at matched narrower
+volts/div without clipping, then retain the same settings for the active
+shunt run. The generic plot labels CH4 as digital GPIO because no state-DAC
+channel was selected; the CSV still contains analog CH4 voltage samples.
 
 ## 7. Experimental methodology direction
 
@@ -171,7 +206,7 @@ Primary end-to-end metrics planned:
 The September 29 downloaded planning update supersedes the older comparison priorities:
 
 - Custom output-stationary (OS) and input-stationary (IS) engines versus same-model Apollo4 TFLM; separately identify reference-int8 and CMSIS-NN configurations and actual kernel fallbacks.
-- V0 continuous-power comparison is **reported performed in the supplied update; results, methods and raw artifacts are pending receipt/review**. Do not label it unrun or demand an automatic rerun. No numeric speedup/energy result is verified here.
+- V0 continuous-power comparison has **summary evidence reviewed in `Data_tables.pdf` (received September 29)**. Board latency, accuracy and earlier-engine recovery results are reported with engine-specific scope; raw captures and exact source/binary/model lineage remain to be audited. Energy is explicitly estimated, not physically measured. See the evidence update below.
 - V11 counts correct, committed classifications in fixed PT1/PT2/PT3 windows, with inference-only and full camera-plus-inference results separate.
 - V14 measures full production-checkpoint energy and low-level MRAM-program intervals with matched control measurements; board-rail measurements do not isolate the MRAM array itself.
 - Capuchin remains conditional on model/operator/arithmetic equivalence and an actual same-Apollo4 port. The deployed RUIC graph uses average pooling; [Capuchin's published support list](https://github.com/leleonardzhang/Capuchin) includes max pooling, not average pooling. This requires source-level feasibility work, not an automatic rejection or silent operator substitution.
@@ -194,7 +229,7 @@ Implementation is not validation: incremental CNN scheduling, selective checkpoi
 
 | ID | Validation scope | Current evidence / remaining work |
 |---|---|---|
-| V0 | Continuous-power engine comparison | Reported performed in the supplied September 29 update; evidence and conditions pending review. No measured ranking verified here. |
+| V0 | Continuous-power engine comparison | Data_tables.pdf summary reviewed: 192 MHz board timings, including merged-r2 OS vs optimized TFLM. Raw evidence/build lineage and uncertainty remain open; no measured energy comparison provided. |
 | V1 | Float/int8 MNIST accuracy and model/export lineage | Deployed weights exist; source model, exporter lineage, held-out accuracy and disagreement evidence remain unverified. No `export_weights.py` was found in the reconciliation inventory. |
 | V2 | Uninterrupted vs interrupted/restored inference equivalence | Incremental exact execution and restore are implemented; validate equivalent outputs/progress across representative interruptions using identical inputs. Separate scene changes during scanning from arithmetic correctness. |
 | V3 | Live ADC/scheduler thresholds | GPIO16 sensing, calibrated conversion, budgets and resume gate are implemented; validate physical readings and decisions at boundaries. |
@@ -216,7 +251,7 @@ Checkpoint-header integrity and full marker timing coverage remain review items 
 
 Inspected local `main` at `190c4f503` with a clean worktree. See [updated V0–V14 implementation assessment](docs/RUIC_VALIDATION_IMPLEMENTATION_PLAN.md) for proposed changes, prerequisites and sequence. No new firmware or hardware validation is claimed.
 
-- **CURRENT:** `apps/bisen_camera_harvest_IS` adds an input-stationary/SIMD candidate. The existing root replay helper still selects `bisen_camera_harvest` with its output-stationary default. The IS module selects dataflow 1/SIMD 1 but retains the original binary name/linker reference; its included `nn_build.h`, `nn_simd.h`, and `nn_wo.h` exist only under the original app. Standalone integration/build verification remains open. Both weight headers are byte-identical. The CHANGES-r2a engine-replacement note does not match the original app's current engine/module; do not infer deployment or new test passes from it.
+- **CURRENT:** `apps/bisen_camera_harvest_IS` and nested `apps/bisen_camera_harvest_OS/bisen_camera_harvest_OS` are paired engine-r2a candidates. Their `src/` trees, including weights, are byte-identical; module settings select IS (dataflow 1) or OS (dataflow 0), both with SIMD 1 and CMAX 6. On 2026-09-29 the missing IS headers were copied from the byte-identical OS/original headers, both packages were switched to app-local linker references, and IS default identity became IS01 while OS remains OS01. Both full ARM replay builds and basic host checkpoint/policy tests pass; no firmware was flashed or physical variant validation performed. The root replay helper still selects the older `bisen_camera_harvest` app, and top-level `make deploy` does not resolve either package's binary name. The CHANGES-r2a engine-replacement note does not match the original app's current engine/module; do not infer deployment or new test passes from it. See `docs/RUIC_R2A_PAIR_RUN.md`.
 - **CURRENT correction to earlier inventory:** replay helpers, tools and trace files are now tracked. Their earlier untracked status remains historical. PT1/PT2/PT3 mapping and calibration are still unresolved.
 - **V12 constraint:** TPS7A0220 supports recommended input only through 6.0 V (absolute maximum 6.5 V), so it cannot directly accept the current 7.5–8 V reservoir. [TI datasheet](https://www.ti.com/lit/ds/symlink/tps7a02.pdf). The replacement plan must first choose a lower reservoir range with transient margin or a regulator rated for the existing range. Recalibrate policy gates, FG ceiling and energy reserve together; installed hardware remains MP1584EN.
 - **Measurement gap:** the capture script estimates reservoir energy change, not shunt-integrated board energy; its default capacitance is 0.1 F rather than installed 0.01 F. Use `--no-energy` for state-only runs, or explicit `--cap-f 0.01` for labeled reservoir-change calculations. Simultaneous charging prevents treating net reservoir change as consumed board energy.
@@ -244,3 +279,187 @@ The approved documentation baseline was committed as `dc4a95f7ca888b747fe6d2304a
 ### 2026-09-29 downloaded-plan reconciliation
 
 The Downloads copies were planning/scratch exports, not newer live repository snapshots. Their pending migration/bridge tasks, unresolved app/threshold/layout findings and absent-baseline assumptions were not imported over the completed reconciliation. The duplicate port checklists are byte-identical; one canonical copy is retained in `docs/`. The imported statement that the continuous-power comparison has not been measured conflicts with its own latest dated update; the reconciled status is performed, evidence pending review. No hardware installation, firmware deployment or experimental pass is implied by this synchronization.
+
+### 2026-09-29 — Continuous-power benchmark summary received
+
+**Evidence reviewed, not independently rerun:** `/Users/ghart/Downloads/Data_tables.pdf`, dated September 28, seven pages, SHA-256 `4687478028f1878489aa4cf25a49a12957f8bb25a859df53280375f9af9c0a19`. Read all tables and notes. The report labels board measurements at 192 MHz, 100-image timing bench (300 timed inferences per tile for proposed engines; 1,000 for TFLM), full-dataset UART streams, host estimates and historical engine versions separately. Timing images had MRAM writes locked. All energy numbers are explicitly estimates.
+
+- TFLM is reported as neuralSPOT/helia with CMSIS-NN SIMD kernels. Reuse/audit this existing baseline before proposing another port; exact version, flags, operators/fallbacks and model hashes still need source/capture provenance.
+- Tables 4/8: merged-r2 OS LeNet tile 8/64/whole = 11.66/9.90/9.60 ms versus TFLM 14.83 ms; Fashion-MNIST = 44.47/39.38/38.07 ms versus TFLM 44.53 ms. These support OS as a performance candidate; whole-inference timing is not evidence of bounded energy checks or harvested throughput. The 0.1% Fashion tile-8 difference is not an established advantage without uncertainty.
+- Full-dataset exactness/accuracy results belong to the specifically named older/SIMD/merged-080 variants, not automatically to merged-r2 OS/IS. Equal aggregate accuracy does not prove equal scores or per-image predictions. Reported TFLM score differences from the reference need arithmetic-level explanation; retain the optimized comparator rather than substituting a slower one to force byte equality.
+- Table 16: old-engine IS, 349 saves/192 restores, mean save 3.16 ms, programming 2.10 ms, restore 0.86 ms. These are useful historical timing evidence, not current-r2 energy/safety data. Table 17 has older/SIMD recovery campaigns and explicitly no merged-engine campaign.
+- Camera Table 20 changes crop ON/OFF between variants; accuracy counts 54/60 and 42/60 are not a controlled engine comparison. Low-bit results are separate precision/size/latency tradeoffs, not evidence for faster exact-int8 replay.
+- Recommended next work: pin benchmark sources/artifacts and candidate build; qualify current-r2 exactness and production cold recovery; measure production scheduler overhead at intended budgets plus actual checkpoint energy; then paired inference-only and matched-camera replay comparisons. These are recommendations, not new firmware implementation or validated passes.
+
+**Repository update:** inspection after the usage interruption found `main` at `f0c17f0bfbe729f91cd32f4ca2bda62f3bb3fc33`, including OS package commit `0ad5ccf18` at `apps/bisen_camera_harvest_OS/bisen_camera_harvest_OS`. This supersedes the earlier inventory that listed only the original and IS apps. Its README identifies engine-r2a as 080-r2 plus `nn_abandon`, cites the same timing values and `RESULT-R2-BOARD-2026-09-28.md`, and explicitly says these are not packaged-application measurements. The referenced board report and acceptance scripts were not found locally. Exact source/binary/capture identity remains unverified. Existing untracked `docs/RUIC_V14_MRAM_Checkpoint_Energy_Plan.md` was read and left unchanged; its proposed bench configuration is not independent proof of installation or new authorization.
+
+
+### 2026-09-29 — DAC commit marker history and current setting
+
+**HISTORICAL:** user briefly requested suppressing code 5. That edit was not
+flashed and has now been superseded by an explicit request to restore the
+completion notification. **CURRENT (source only):** all three harvest variants
+emit code 5 after successful writes. Checkpoint serialization, thresholds,
+session persistence and error paths are unchanged. See [state-DAC mapping and
+MSP430 comparison](docs/RUIC_STATE_DAC.md). The inspected historical MSP430
+`main.c` emits a timed code-5 pulse after FRAM checkpointing. Ambiq emits
+code 5 until the next activity, with no fixed pulse delay. Both treat it as a
+notification rather than a second write operation; source does not establish
+what was flashed for any archived capture.
+**DIRECTION:** checkpoint and restore energy are the next experimental priority
+(V14); full restore-marker coverage and controlled measurement harness remain
+pending. This marker-only edit does not complete energy or physical validation.
+
+### 2026-09-30 — State-DAC wiring and paired ADC observation
+
+**USER-REPORTED CURRENT BENCH:** the camera state-DAC resistors are GPIO62
+(firmware bit 0) 99.3 kΩ, GPIO63 (bit 1) 201 kΩ, and GPIO61 (bit 2) 398 kΩ
+to the analog junction. GPIO62-only high gives about 1.07 V at that junction
+on a 1.88 V rail. The normalized analog ladder ranks and firmware state codes
+are different: ranks 0–7 correspond to codes `[0,4,2,6,1,5,3,7]`. The
+`apollo-camera` scope decoder now applies this mapping, preserves raw and
+ladder codes, and suppresses observed sub-100 µs junction-edge overshoot by
+default. Earlier plots that label ~1.07 V as state 4 must be re-decoded from
+raw CSV before using them as checkpoint evidence. CH1 is board-side of the
+shunt, CH4 is MP1584EN-output side, CH2 is the DAC junction, and CH3 is live
+MP1584EN input when performing VCAP/ADC comparisons. The capacitor/divider
+filter is user-confirmed installed; probe positions must still be recorded
+per run.
+
+**OPEN V3 CALIBRATION ISSUE:** the latest paired user observation had live
+CH3 around 7.26 V and retained ADC mean code 598 (minimum 563, maximum 630,
+32 samples); firmware's configured 461@5.5 V and 634@7.5 V anchors predict
+about code 613 at 7.26 V. The observed code spread is wider than the CH3
+movement in that capture. Code inspection found no proven extraction-scale
+bug, but the ADC conversion routine does not check sample-read status/count/
+slot. This is an audit finding, not proof of the discrepancy's cause. No
+policy thresholds or firmware were changed; paired multi-voltage bench
+validation is required before claiming calibrated decisions or V14 energy.
+
+**Interpretation correction (2026-10-01):** the calibration image's printed
+`VCAP_nominal_mV=6949` at raw code 598 uses the ideal 1.19 V reference and
+390k/10k ratio because `BISEN_HARVEST_CAL_HIGH_UV=0` in the default module
+configuration. It does not apply the production replay build's 461@5.5 V /
+634@7.5 V fit. Applying that fit to raw 598 gives about 7.084 V, leaving
+about 0.176 V versus the approximately 7.26 V live-input observation, not
+the full 0.311 V suggested by comparing DMM voltage directly with the
+calibration image's nominal display. The raw-code spread and remaining
+discrepancy are unresolved; this does not prove that the capacitor changed
+the ADC calibration or that the production binary currently flashed uses
+these anchors.
+
+**2026-10-01 paired GPIO16 capture (user-supplied, not yet physical validation):**
+`v14_adc_gpio16_paired_01.csv` has two state-1 ADC intervals, 0.424736–0.615444 s
+and 0.639714–0.830390 s. CH3 mean was 7.2796/7.2663 V and CH4 at GPIO16
+mean was 0.180276/0.180006 V for the intervals, consistent with the user's
+DMM readings of VCAP 7.32 V and GPIO16 0.181 V. CH4 1 ms block-mean span
+was below 1 mV in each interval, comparable to idle; its sample noise was
+about 2.9 mV RMS. The two retained SRAM records had 32/32 valid readings,
+raw-code means 544/550 and ranges 505–576 / 512–580. A 0.180 V pin level
+would nominally correspond to approximately code 620 with 1.19 V/12-bit
+scaling; the observed raw means imply approximately 0.158/0.160 V. The code
+range would represent roughly 20 mV at the pin, not seen as a sustained
+change in CH4. These observations localize the discrepancy to the ADC-side
+measurement, reference, sampling, pin/ground relationship or software path;
+they do not identify one cause. Do not refit anchors from these records.
+
+**CURRENT diagnostic tool and user-reported bench result (2026-10-01):** the
+original `apps/bisen_camera_harvest` calibration image supports optional
+`BISEN_HARVEST_ADC_DIAG_COMPARE=1`. Consecutive BTN0 records alternate the
+existing per-reading ADC mode switch and a held supply-mode burst, with HAL
+FIFO read/count/slot error counters retained for BTN1 readout. The default
+flag is 0; full replay/MRAM mode rejects the diagnostic flag. The user flashed
+and exercised the diagnostic. In `v14_adc_gpio16_paired_02`, the later
+switched/held records were 578/577 at CH4 GPIO16 means 0.180081/0.179814 V;
+the earlier retained records were 508/285, but were not paired with this
+analog capture. A fresh reset and `v14_adc_gpio16_paired_03` yielded three
+switched/held pairs 569/570, 586/588, and 585/589, all 32/32 valid with zero
+reported FIFO read/count/slot/drain errors. Across the six captured ADC
+intervals, CH4 GPIO16 means stayed 0.180225-0.180539 V and CH3 live VCAP
+means 7.2684-7.2810 V. The very low held record 285 did not reproduce.
+Mode strategy is not a sufficient explanation; the first pair in the fresh
+run was about 17-19 counts lower than later pairs despite stable GPIO16.
+The R4.5.0 HAL states that `am_hal_adc_samples_read` applies gain/offset
+correction, so the logged codes are HAL-corrected FIFO codes, not independent
+uncorrected ADC conversions. Nominal 1.19 V/12-bit scaling predicts about
+620-621 counts at the observed 0.180 V GPIO16, still above the later
+585-589 codes. A causal ADC diagnosis and multi-voltage calibration are
+open. Neither production anchors nor policy thresholds changed; V3 and
+the V14 quantitative energy gate remain open.
+
+**2026-10-01 GPIO17 sweep and A–B–A bench evidence (user-supplied):** the
+calibration-only `BISEN_HARVEST_DIAG_SUPPLY_PIN=17` image was used with the
+divider on GPIO17/ADCSE2. Initial ascending DMM VCAP/GPIO17/code-mean pairs
+were 5.81 V/0.143 V/463, 6.21 V/0.153 V/500, 7.31 V/0.180 V/590, and
+7.52 V/0.186 V/602.5; 6.81 V was measured but not captured. On the return
+leg, 7.30 V/0.181 V produced four-record mean 565, then 6.80 V/0.169 V
+produced three-record mean 540. This is monotonic in the correct direction,
+but the two 7.3 V groups differed by 25 codes. In a fresh switched/held
+A–B–A diagnostic run, 7.30 V/0.181 V produced four-record mean 583.75,
+6.80 V/0.168 V produced three-record mean 542, and returning to
+7.30 V/0.180 V produced two-record mean 583.5; DMM board VDD was
+1.897–1.898 V. All nine records had 32/32 valid readings and zero reported
+FIFO read/empty/slot/drain errors, with same-voltage switched/held means
+within 1–3 codes. The earlier 565-code group and broad individual 32-read
+ranges remain unexplained. GPIO17 is not the production GPIO16 input; no
+production calibration, policy threshold, or V14 validation status changed.
+
+**2026-10-01 synchronized GPIO17 capture (user-supplied):**
+`adc_gpio17.csv` contains ten state-1 ADC intervals matching ten SWO records
+at nominal 7.30 V. During those intervals, scope CH4 GPIO17 mean varied
+0.180990–0.181330 V, CH3 live VCAP mean 7.26034–7.27097 V, and CH1 board
+VDD mean 1.892055–1.892775 V. The ten HAL-corrected code means ranged
+582–595, while within-record extrema span 47–105 codes. All records were
+32/32 valid with zero reported FIFO read/empty/slot/drain errors. Scope
+sample interval was 20 us; brief analog disturbances or ground/reference
+shifts remain possible. Source now has a **calibration-only, opt-in** ordered
+32-code SRAM/SWO diagnostic under `BISEN_HARVEST_ADC_DIAG_COMPARE=1` with a
+layout-version bump; its selected GPIO17 image builds but has not been
+flashed or physically checked. No production threshold or calibration change.
+
+**2026-10-01 ordered GPIO17 bench capture (user-supplied):** The later
+`adc_gpio17_2.csv` and on-target SWO show that the ordered-code diagnostic
+image was flashed and exercised at nominal VCAP 7.30 V. Four state-1 ADC
+windows lasted 190.5–190.8 ms. Their 32-code means were 590.4/585.6/588.5/
+591.9 for switched/held/switched/held; every burst was 32/32 valid with zero
+reported FIFO read/empty/slot/drain errors. Within-burst standard deviations
+were 14.1–17.0 codes and the ordered sequences show no consistent startup
+trend. During the windows, CH4 GPIO17 means were 0.18031–0.18037 V, CH3
+live VCAP means 7.26046–7.26148 V, and CH1 board VDD means
+1.89223–1.89225 V. These are scoped voltage means, not a resolved
+sample-by-sample causal correlation. Nominal 1.19 V/12-bit scaling predicts
+about 620 codes from the observed pad voltage, versus 589.1 overall observed;
+this does not establish the physical ADC reference voltage because HAL gain/
+offset correction is applied. The earlier 565-code group and the code spread
+remain unexplained. A bench-ground-loop hypothesis documented in `CODEX_LOG.md`
+is UNCONFIRMED pending controlled rewiring. Production GPIO16 calibration and
+V3/V14 voltage-dependent validation remain open; no anchors or thresholds changed.
+
+**2026-10-01 rewired-ground diagnostic (user-supplied on-target SWO):**
+After removing the reported duplicate EVB/source ground path, four GPIO17
+ordered bursts averaged 595.0/586.8/587.3/590.8 codes (overall 590.0), versus
+589.1 overall before rewiring. Within-burst standard deviations were
+14.5/13.4/22.7/15.7 codes, versus 16.5/16.0/17.0/14.1 before. All 32/32
+reads succeeded in every burst with zero reported HAL FIFO errors. The
+rewiring did not materially improve the code mean or scatter; this argues
+against the removed loop as the dominant cause. A new synchronized pin-voltage
+and scope capture was not yet provided with this SWO, so exact ADC input
+voltage and offset after rewiring remain unconfirmed. Do not infer that the
+ADC reference, HAL correction, camera coupling, or scope probing is the cause.
+Production GPIO16 and threshold calibration remain unqualified.
+
+**2026-10-01 probe-free GPIO17 result (user-supplied on-target SWO):**
+With the rewired ground and oscilloscope probes disconnected, six 32-code
+GPIO17 bursts averaged 614.7/616.7/616.7/620.8/618.7/616.7 codes
+(overall 617.4); within-burst standard deviations were 8.4/10.3/9.1/
+7.6/5.1/7.6 codes. All records were 32/32 valid with zero reported FIFO
+read/empty/slot/drain errors. The immediately preceding rewired/probed run
+averaged 590.0 codes with aggregate 17.3-code standard deviation; this
+probe-free run averaged 27.4 codes higher with aggregate 8.4-code standard
+deviation. The comparison strongly implicates connected measurement equipment
+or an associated physical-condition change. The user subsequently confirmed
+DMM VCAP 7.30 V and an unchanged FG setting for the probe-free run; GPIO17
+and board VDD were not measured then. Do not assign the effect
+specifically to scope grounding, one probe tip, or ADC reference. Reconnect
+probes one at a time, including a ground-only control, before using scoped
+ADC/policy traces for V3/V14 claims. Production GPIO16 remains unqualified.

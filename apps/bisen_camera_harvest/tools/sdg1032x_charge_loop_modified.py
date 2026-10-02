@@ -703,6 +703,12 @@ def run_trace_loop(args):
 
                 print(f"cycle={cycle} trace output end: output=off rest_s={args.rest_s:g}", flush=True)
                 set_output(inst, args.channel, False, args.load)
+                if log_writer:
+                    log_writer.writerow(
+                        [time.time(), time.monotonic() - cycle_start, cycle,
+                         len(amp_values), 0.0, 0, args.rest_s, 0.0]
+                    )
+                    log_handle.flush()
 
                 if max_lateness_s >= step_s:
                     print(

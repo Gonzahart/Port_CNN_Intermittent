@@ -57,10 +57,18 @@ This file contains authorized shared tasks for ChatGPT and Codex. Codex should n
 ## Validation implementation assessment (2026-09-29)
 
 - [x] Inspect the current V1–V13 backlog against firmware, build profiles and bench tooling; record [implementation plan](docs/RUIC_VALIDATION_IMPLEMENTATION_PLAN.md). This completes planning only.
-- [ ] Before adopting the newer IS/SIMD app, resolve missing local headers/build-deploy identity, run equivalence/restore tests and recharacterize unit/checkpoint energy; retain the existing OS reference.
+- [ ] Qualify the paired r2a OS/IS apps before comparative claims. Missing IS headers, app-local linker references, distinct OS01/IS01 identities, ARM builds and basic host checkpoint/policy tests are resolved (2026-09-29). Explicit flash paths are documented because `make deploy` does not resolve either package's renamed `EXAMPLE`. Exact-score equivalence, true cold restore, state markers and per-variant work/checkpoint energy remain unvalidated on hardware; preserve the original app as a reference. See `docs/RUIC_R2A_PAIR_RUN.md`.
 - [ ] Before V12 assembly, resolve TPS7A0220's 6.0 V recommended-input limit versus the present 7.5–8 V reservoir. Select the voltage range/power path, then change replay ceilings, calibration and safety thresholds together.
 - [x] Reconcile the downloaded September 29 planning files against the live state; expand to V0–V14, defer V5/V6 and preserve completed bridge work. The earlier V1–V13-only implementation order is superseded.
 - Proposed next package: review existing V0 evidence and freeze model/input/build identity; then add production-path MRAM energy instrumentation and focused harness (V14), completion accounting/replay analysis (V9–V11), and missing TFLM variants (V7). Capuchin remains feasibility-first. Firmware implementation is still proposed, not performed or activated by this document merge.
+
+## State-DAC completion notification (2026-09-29)
+
+- [x] Restore successful-write code 5 in original harvest, IS and OS policy glue, matching the MSP430 completion-notification meaning. The preceding code-5 suppression was superseded before deployment. Internal accounting and code numbers remain unchanged; code 5 is held until the next activity without a fixed pulse delay.
+- [ ] Rebuild/flash the selected experimental image and verify code 4 → code 5 after a successful save, then the next activity. Error handling and cold restore still need hardware checks.
+- [ ] Before V14 restore-energy integration, move CNN restore instrumentation around actual storage recovery; restoring code 5 does not fix this marker.
+- User priority: measure production checkpoint and restore energy next. Measurement harness and power-path changes remain separate work.
+- [ ] For the eventual Stop/wait-energy study, record actual sleep entry/current and wake reliability in normal mode before any deep-sleep trial; the current mode-2 path is optional and unvalidated. Keep this distinct from V14 checkpoint-energy measurement and from MSP430 LPM3.5 standby.
 
 ## Shared V0–V14 validation program — research backlog
 
@@ -68,7 +76,7 @@ These tasks document the agreed validation strategy. They are **not automaticall
 
 ### Research priority after supervisor discussion (2026-09-28)
 
-**2026-09-29 user update:** V0's continuous-power engine comparison has been performed; results and exact conditions are pending receipt and review, so its evidence checkboxes remain open. Defer V5 compulsory-Stop and V6 SunSift-style layer-boundary studies to a later paper. Current paper priority is the CNN engine, controlled TFLM/feasible Capuchin comparisons (V7–V8, V11), and MRAM energy (V14). Do not implement or include V5–V6 in the present study.
+**2026-09-29 user update:** V0's continuous-power comparison has been performed; the Data_tables.pdf summary is now reviewed. Raw captures, exact build/model lineage and uncertainty remain open; energy in the report is estimated. Defer V5 compulsory-Stop and V6 SunSift-style layer-boundary studies to a later paper. Current paper priority is the CNN engine, controlled TFLM/feasible Capuchin comparisons (V7–V8, V11), and MRAM energy (V14). Do not implement or include V5–V6 in the present study.
 
 1. Establish whether the custom CNN engine is faster or lower-energy than TFLM on the **same int8 model and Apollo4 board** under continuous supply (V0, V7). Correct outputs and accuracy are entry gates (V1, V2).
 2. Establish whether runtime differences translate into **more correct completed classifications per identical replay** on one final power path (V9, V11). Report inference-only and full camera-plus-inference outcomes separately; equal generator commands may produce different loaded VCAP waveforms.
@@ -79,7 +87,12 @@ These tasks document the agreed validation strategy. They are **not automaticall
 
 ### V0 — Continuous-supply CNN-engine speed and energy (new primary test)
 
-**Status:** User reports this comparison has been run; numerical results, methods, and raw evidence pending. Review against the controls below before marking individual criteria complete.
+**Status:** Summary tables received and reviewed (Data_tables.pdf, September 29). Existing optimized TFLM/CMSIS-NN and multiple proposed-engine timings are reported. Reuse their artifacts; do not automatically recreate the baseline or repeat the entire campaign. Audit raw captures and exact source/binary/model identity before closing criteria. No measured energy evidence is supplied.
+
+- [x] Review all seven pages, separate engine versions and board/host/derived results, and record conclusions in PROJECT_STATE.md.
+- [ ] Obtain/map merged-r2 (080-r2/Task 083) and TFLM source snapshots, binary/model/input hashes and sealed captures to the harvest candidates, including the newly added nested OS package.
+- [ ] Qualify the chosen current merged-r2 OS/IS builds with full-vector correctness and production checkpoint/cold-restore tests; older-engine campaigns do not close this version-specific gap.
+- [ ] Measure production ADC/policy/chunk overhead at the intended 100/500/1000 budgets separately from bare-engine tile 1/8/64/whole results, with clocks and coherent-unit semantics recorded.
 
 - [ ] Build proposed output-stationary and input-stationary engines and TFLM on the same Apollo4 using one exported int8 LeNet model and exactly the same input tensor vectors.
 - [ ] Verify all ten output logits, predicted labels and accuracy before timing. Run warm repeated inferences; report setup/tensor allocation separately from steady-state invocation.
@@ -113,6 +126,18 @@ These tasks document the agreed validation strategy. They are **not automaticall
 - [ ] Sweep upward and downward near boundaries and repeat measurements.
 - [ ] Record DMM VCAP, reconstructed firmware VCAP, chosen plan/chunk, wait state, checkpoint trigger, and resume event.
 - [ ] Characterize ADC variation near each boundary.
+- [ ] Resolve the September 30 paired bench discrepancy before treating reconstructed VCAP as calibrated: with CH3 on live MP1584EN IN+ and the 10 nF GPIO16 filter installed, the user reported raw mean 598 (range 563–630 over 32 samples) at approximately 7.26 V, while the current 461@5.5 V / 634@7.5 V anchors predict about code 613. Repeat synchronized DMM VCAP, GPIO16, CH3 and retained-code measurements at several stable points with explicit J-Link state; recalibrate only from reproducible paired measurements.
+- [ ] Investigate the October 1 paired GPIO16 capture before a voltage sweep: CH4 is about 0.180 V and stable in 1 ms averages through two ADC intervals, but the 32-read raw means are 544/550 with 505–580 combined range. Audit HAL sample-read return/count/slot, reference/trim state, ADC mode-switch settling and GPIO16 ground/pad identity. Use a diagnostic build to compare the existing repeated mode switching with one supply-mode hold over 32 reads under identical bench conditions; retain the unmodified baseline result. Do not change production anchors or thresholds from these data alone.
+- [x] Prepare and build a calibration-only switched-versus-held ADC diagnostic with retained HAL FIFO read/count/slot error counters. This is a firmware/tooling milestone only; the paired physical experiment remains open.
+- [x] Flash and physically exercise the diagnostic at a stable approximately 7.28 V VCAP with CH3 on live MP1584EN input and CH4 on GPIO16; compare switched/held BTN0 records and read retained data with BTN1. User-supplied `v14_adc_gpio16_paired_02/03` captures show later pairs agreeing within 1-4 counts and no reported FIFO errors; this does not close ADC accuracy validation.
+- [ ] Resolve the remaining approximately 30-50-count difference between HAL-corrected ADC readings and the nominal 1.19 V code predicted by a measured approximately 0.180 V GPIO16. Inspect correction trims/reference and ordered per-read code behavior if needed; repeat controlled paired measurements at a second and third stable VCAP before changing production calibration or thresholds.
+- [ ] Resolve the GPIO17 diagnostic sweep repeatability and individual-reading spread: the user-supplied 7.30→6.80→7.30 V A–B–A run returned to essentially the same 7.30 V group mean with zero HAL FIFO errors and switched/held agreement, but a previous 7.30 V group was 25 codes lower. Capture ordered readings synchronized with GPIO17 voltage/VDD at fixed VCAP, then qualify the intended production GPIO16 path before fitting anchors or validating policy boundaries. GPIO17 remains calibration-only.
+- [x] Add calibration-only ordered 32-code capture to the GPIO17 switched/held diagnostic and build the selected image. This image has now been flashed and physically exercised in the user-supplied `adc_gpio17_2` capture; this does not validate production GPIO16.
+- [x] Capture and inspect ordered GPIO17 codes at fixed VCAP alongside selected-pad, live VCAP and board-VDD scope channels (`adc_gpio17_2`, October 1); no consistent within-burst startup trend or switched/held difference was found.
+- [x] Repeat the GPIO17 ordered-code diagnostic after controlled removal of the duplicate ground path. User-supplied SWO means stayed about 590 codes and within-burst scatter did not improve; this does not identify the ADC root cause.
+- [x] Compare probe-free GPIO17 ADC codes after rewiring: six user-supplied on-target bursts averaged 617.4 codes with aggregate SD 8.4, versus 590.0 and SD 17.3 with probes attached. User confirmed DMM VCAP 7.30 V and unchanged FG setting; GPIO17/VDD were not measured, and no single probe/ground cause is identified.
+- [ ] Isolate the measurement-loading path with no-probe → one scope ground lead only → one GPIO17 probe tip → no-probe controls at fixed DMM VCAP/GPIO17, then add remaining probe channels individually if needed. Do not use scoped ADC/policy traces as calibrated evidence until this is resolved.
+- [ ] Explain the earlier 565-code group and remaining code spread; qualify production GPIO16 at multiple stable voltages before fitting anchors or testing policy thresholds. Inspect HAL correction/ADC configuration if the instrument-isolated measurements remain inconsistent.
 - **What this proves:** the implementation follows the intended energy-aware policy and hysteresis rather than merely compiling with threshold constants.
 
 ### V4 — Production checkpoint trigger and cold-restore validation
@@ -218,10 +243,17 @@ These tasks document the agreed validation strategy. They are **not automaticall
 
 - [ ] Freeze the board/power path and identify the live checkpoint backend's actual MRAM-program calls, record/header sizes, payload packing and interrupt-disabled intervals. Mark both the full save interval and the low-level programming call without changing the production write sequence or adding serial output in the timed region.
 - [ ] On regulated board power, capture load-side VDD and a calibrated high-side shunt waveform at enough bandwidth to resolve short calls; use the state marker plus dedicated edge markers or timestamp correlation for start/end. Measure probe gain/offset, shunt resistance, sampling rate and uncertainty. Four analog channels can capture upstream and downstream shunt voltages (the downstream endpoint also supplies VDD), VCAP and state DAC. Adding an independent HAL-call marker then requires digital capture, a differential current channel freeing an analog channel, or a separate focused acquisition with a measured alignment event. Verify all required channels work; the previously reported CH3 issue is unresolved here.
+- [ ] Use the corrected `apollo-camera` ladder decode (GPIO62/63/61 through 99.3/201/398 kΩ) and the current probe polarity: CH4 MP1584EN OUT+ upstream, CH1 board J7.3 downstream, CH2 DAC junction, CH3 live MP1584EN IN+. Re-decode old raw captures before interpreting state 1 versus 4; reject edge overshoot and verify code-4→5 intervals against production SWO metadata.
 - [ ] Integrate VDD(t) I(t) for the full checkpoint and for the MRAM program interval. Use a matched no-write/dry-run or equivalent idle/control path over the same interval to estimate incremental write energy without pretending that the rail capture isolates only the on-chip MRAM array.
 - [ ] Repeat across small/median/maximum actual record lengths and representative camera/CNN cursor positions, both slots, and many trials. Report measured bytes, program-call counts, duration, peak current, median/spread and control-subtracted energy. Keep completion/tombstone writes separate from recovery checkpoints.
 - [ ] Repeat or clearly invalidate these measurements if MP1584EN is replaced by TPS7A0220. Use worst-case checkpoint energy plus regulator/dropout margin when qualifying VCAP thresholds.
 - **What this proves:** whether the emergency-save policy is affordable in the actual reservoir window and how much full checkpointing costs relative to useful CNN work.
+
+First-run tooling now includes a deterministic 120 s FG DC-command profile and
+an offline shunt integrator for decoded code-4→5 write candidates. This is
+**not** a completed V14 measurement: confirm actual VCAP crossings, shunt
+calibration, write identity and board-rail integrity on the bench. See
+`docs/RUIC_V14_MRAM_Checkpoint_Energy_Plan.md` §9.
 
 ### Additional repository controls
 

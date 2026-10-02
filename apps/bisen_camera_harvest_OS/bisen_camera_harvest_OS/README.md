@@ -4,6 +4,16 @@ This is 080-r2 plus nn_abandon, using your weights and checkpoint code.
 It selects NN_DATAFLOW=0 NN_SIMD=1 NN_MAX_CONV_IN_C=6. CMAX is retained
 for the LeNet build contract; it limits IS convolution capacity, not OS.
 
+Current checkout note: this package now builds in place with
+`EXAMPLE=bisen_camera_harvest_OS/bisen_camera_harvest_OS` and its own linker
+script. The unchanged `src/` tree is byte-identical to the adjacent IS
+package; their module files select the dataflow and distinct OS01/IS01
+checkpoint identities. See `../../../docs/RUIC_R2A_PAIR_RUN.md` for the
+matched builds and flash method. The `Apply` instructions below describe
+using the original delivered archive by replacing the older app; replacement
+is not needed in this checkout. The top-level `make deploy` target does not
+resolve the nested package's binary name, so use the explicit image path.
+
 Apply
 
 Back up apps/bisen_camera_harvest first. Put bisen_camera_harvest_OS in
@@ -46,8 +56,8 @@ own valid journal. Re-arm continuous execution when appropriate. Magic
 rejects records; it does not erase them. Switching back can expose surviving
 old records, although flashing/layout changes can overwrite them.
 
-The unchanged linker and README-original.md still mention HVR1. The active
-OS identity is the module.mk setting above. Compatibility isolation is not
+README-original.md still describes the historical HVR1 app. The active OS
+identity is the module.mk setting above. Compatibility isolation is not
 corruption hardening: the existing restore path does not validate a
 same-identity cursor before deriving live regions.
 
@@ -144,3 +154,17 @@ Compile-only does not execute the native tests or ARM builds and never
 prints the full acceptance PASS marker. The compile receipt lists warnings.
 The full runner records commands, return codes, log and artifact hashes.
 No deploy/flash command is run.
+
+
+## State-DAC completion notification (2026-09-29)
+
+Successful checkpoint, retirement and session writes emit code 5 after their
+code-4 write interval. This is a completion notification like the inspected
+MSP430 reference, not a second write phase. It remains on the state bus until
+the next marked activity; no fixed pulse duration or extra delay is added.
+Commit counters, return-value checks, header-last storage writes and error
+handling remain intact. Other DAC codes retain their numbers. Code 5 can also
+follow session and retirement writes, so it alone is not a workload checkpoint
+count. See `docs/RUIC_STATE_DAC.md` for the mapping, MSP430 comparison, wait
+behavior and restore-energy instrumentation limitation. Rebuild and flash to
+apply this change; existing captures/binaries retain their previous behavior.

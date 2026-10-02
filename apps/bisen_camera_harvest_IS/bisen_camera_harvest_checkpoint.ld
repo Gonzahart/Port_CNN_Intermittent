@@ -5,7 +5,7 @@
  * The section is NOLOAD, 16-byte aligned, and placed after this app's loadable
  * MRAM image. It is absent from the deployable .bin. Applications are flashed
  * one at a time into the same application region; old checkpoints are not
- * guaranteed to survive switching images. HVR1 identifies this app's records.
+ * guaranteed to survive switching images. IS01 identifies this app's records.
  */
 INCLUDE "./neuralspot/ns-core/src/apollo4p/gcc/linker_script.ld"
 

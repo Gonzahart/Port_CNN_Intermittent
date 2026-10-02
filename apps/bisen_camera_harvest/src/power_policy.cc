@@ -176,6 +176,8 @@ extern "C" void pp_mark_nvm_write(void) {
     bus_check(4);
 }
 extern "C" void pp_mark_committed(void) {
+    // The save is complete. Code 5 is a notification, not another write phase;
+    // the next activity replaces it without an instrumentation-only delay.
     bisen::instrumentation_set_code(
         bisen::InstrumentationCode::kCheckpointCommitted);
     bus_check(5);

@@ -5,6 +5,7 @@
 // Compiled as C so the AmbiqSuite designated-initializer macros work, exactly
 // as sensor.c is.
 //
+#include <string.h>
 #include "adc_shared.h"
 #include "energy_source.h"
 #include "trace_input.h"
@@ -23,9 +24,44 @@
 #define PIXEL_SLOT     0
 
 // Physical reservoir input: J9.8/GPIO16/ADCSE3, via configured divider.
+// BISEN_HARVEST_DIAG_SUPPLY_PIN=17 moves the supply slot to GPIO17/ADCSE2 in
+// calibration builds only, to isolate a suspected GPIO16/SE3 input fault.
+// GPIO16 is then left in its reset configuration.
+#if BISEN_HARVEST_DIAG_SUPPLY_PIN == 16
 #define SUPPLY_PIN      16
 #define SUPPLY_CHANNEL  AM_HAL_ADC_SLOT_CHSEL_SE3
+#define SUPPLY_FUNCSEL  AM_HAL_PIN_16_ADCSE3
+#elif BISEN_HARVEST_DIAG_SUPPLY_PIN == 17
+#if !BISEN_TRACE_CALIBRATION_MODE
+#error "BISEN_HARVEST_DIAG_SUPPLY_PIN=17 is a calibration-only diagnostic"
+#endif
+#define SUPPLY_PIN      17
+#define SUPPLY_CHANNEL  AM_HAL_ADC_SLOT_CHSEL_SE2
+#define SUPPLY_FUNCSEL  AM_HAL_PIN_17_ADCSE2
+#else
+#error "BISEN_HARVEST_DIAG_SUPPLY_PIN must be 16 (GPIO16/SE3) or 17 (GPIO17/SE2)"
+#endif
 #define SUPPLY_SLOT     1
+
+#if BISEN_HARVEST_ADC_DIAG_DEEP
+#if !BISEN_TRACE_CALIBRATION_MODE
+#error "BISEN_HARVEST_ADC_DIAG_DEEP is a calibration-only diagnostic"
+#endif
+// Overrides used only inside adc_shared_diag_deep(); -1/0 = production values.
+static int s_deep_lp   = -1;   // -1 production, 0 LPMODE0, 1 LPMODE1
+static int s_deep_avg1 = 0;    // 1 = supply slot uses AVG_1
+static int s_deep_full = 0;    // 1 = return the full 12.6 sample
+#define SUPPLY_POWER_MODE(lp1) \
+    (s_deep_lp >= 0 ? (s_deep_lp ? AM_HAL_ADC_LPMODE1 : AM_HAL_ADC_LPMODE0) \
+                    : ((lp1) ? AM_HAL_ADC_LPMODE1 : AM_HAL_ADC_LPMODE0))
+#define SUPPLY_AVG (s_deep_avg1 ? AM_HAL_ADC_SLOT_AVG_1 : AM_HAL_ADC_SLOT_AVG_16)
+#define SAMPLE_DECODE(v) \
+    (s_deep_full ? AM_HAL_ADC_FIFO_FULL_SAMPLE(v) : AM_HAL_ADC_FIFO_SAMPLE(v))
+#else
+#define SUPPLY_POWER_MODE(lp1) ((lp1) ? AM_HAL_ADC_LPMODE1 : AM_HAL_ADC_LPMODE0)
+#define SUPPLY_AVG AM_HAL_ADC_SLOT_AVG_16
+#define SAMPLE_DECODE(v) AM_HAL_ADC_FIFO_SAMPLE(v)
+#endif
 
 // Runtime supply decisions switch ADC0 between the camera's SE4 input and the
 // external ADCSE3 trace input. The hardware AVG16 result removes ordinary conversion
@@ -43,6 +79,18 @@ static int       g_watch_fired;
 static int       g_watch_self_repeats;
 static uint32_t  g_watch_last_code;
 static int       g_parked;
+
+#if BISEN_HARVEST_ADC_DIAG_COMPARE
+static adc_shared_diag_stats_t g_diag_stats;
+
+void adc_shared_diag_reset(void) {
+    g_diag_stats = (adc_shared_diag_stats_t){0};
+}
+
+adc_shared_diag_stats_t adc_shared_diag_get(void) {
+    return g_diag_stats;
+}
+#endif
 
 #ifndef BISEN_HARVEST_SWITCHED_DIVIDER
 #define BISEN_HARVEST_SWITCHED_DIVIDER 0
@@ -63,6 +111,7 @@ static int       g_parked;
     (BISEN_HARVEST_SENSE_ENABLE_PIN == 0 || \
      BISEN_HARVEST_SENSE_ENABLE_PIN == 15 || \
      BISEN_HARVEST_SENSE_ENABLE_PIN == 16 || \
+     BISEN_HARVEST_SENSE_ENABLE_PIN == 17 || \
      BISEN_HARVEST_SENSE_ENABLE_PIN == 18 || \
      BISEN_HARVEST_SENSE_ENABLE_PIN == 19 || \
      BISEN_HARVEST_SENSE_ENABLE_PIN == 34 || \
@@ -102,7 +151,7 @@ static void apply_config(int low_power_mode_1, int repeating) {
         // 53.7 us to restart (datasheet p.213). The camera fires 1024 scans
         // back to back, so LPMODE0 saves it ~55 ms per frame; the supply is read
         // rarely, so LPMODE1 is the right trade there.
-        .ePowerMode = low_power_mode_1 ? AM_HAL_ADC_LPMODE1 : AM_HAL_ADC_LPMODE0,
+        .ePowerMode = SUPPLY_POWER_MODE(low_power_mode_1),
         .eRepeat    = repeating ? AM_HAL_ADC_REPEATING_SCAN
                                 : AM_HAL_ADC_SINGLE_SCAN,
     };
@@ -126,7 +175,7 @@ static void apply_slots(adc_mode_t mode) {
         // reading keeps the window registers meaningless when nothing is armed.
         .bWindowCompare = (mode == ADC_MODE_WATCH),
         .eChannel       = SUPPLY_CHANNEL,
-        .eMeasToAvg     = AM_HAL_ADC_SLOT_AVG_16,
+        .eMeasToAvg     = SUPPLY_AVG,
         .ePrecisionMode = AM_HAL_ADC_SLOT_12BIT,
         .ui32TrkCyc     = TRACKING_CYCLES,
     };
@@ -158,7 +207,15 @@ static void fifo_drain(void) {
     while (AM_HAL_ADC_FIFO_COUNT(ADC->FIFO)) {
         uint32_t n = 1;
         am_hal_adc_sample_t s;
+#if BISEN_HARVEST_ADC_DIAG_COMPARE
+        if (am_hal_adc_samples_read(g_h, true, NULL, &n, &s) !=
+                AM_HAL_STATUS_SUCCESS || n != 1u) {
+            ++g_diag_stats.drain_failures;
+            break;
+        }
+#else
         (void)am_hal_adc_samples_read(g_h, true, NULL, &n, &s);
+#endif
     }
 }
 
@@ -192,8 +249,24 @@ static uint32_t convert_once(void) {
             uint32_t n = 1, val;
             am_hal_adc_sample_t s;
             (void)am_hal_daxi_control(AM_HAL_DAXI_CONTROL_INVALIDATE, NULL);
+#if BISEN_HARVEST_ADC_DIAG_COMPARE
+            if (am_hal_adc_samples_read(g_h, true, NULL, &n, &s) !=
+                    AM_HAL_STATUS_SUCCESS) {
+                ++g_diag_stats.read_failures;
+                return 0xFFFFFFFFu;
+            }
+            if (n != 1u) {
+                ++g_diag_stats.empty_reads;
+                return 0xFFFFFFFFu;
+            }
+            if (s.ui32Slot != (g_mode == ADC_MODE_PIXEL ? PIXEL_SLOT : SUPPLY_SLOT)) {
+                ++g_diag_stats.wrong_slots;
+                return 0xFFFFFFFFu;
+            }
+#else
             (void)am_hal_adc_samples_read(g_h, true, NULL, &n, &s);
-            val = AM_HAL_ADC_FIFO_SAMPLE(s.ui32Sample);
+#endif
+            val = SAMPLE_DECODE(s.ui32Sample);
             return val;
         }
     }
@@ -231,7 +304,7 @@ void adc_shared_init(void) {
 #endif
     am_hal_gpio_pincfg_t pixel_pad = { .GP.cfg_b.uFuncSel = AM_HAL_PIN_15_ADCSE4 };
     (void)am_hal_gpio_pinconfig(PIXEL_PIN, pixel_pad);
-    am_hal_gpio_pincfg_t trace_pad = { .GP.cfg_b.uFuncSel = AM_HAL_PIN_16_ADCSE3 };
+    am_hal_gpio_pincfg_t trace_pad = { .GP.cfg_b.uFuncSel = SUPPLY_FUNCSEL };
     (void)am_hal_gpio_pinconfig(SUPPLY_PIN, trace_pad);
     // Fixed divider settles at boot; switched divider settles on each read.
     am_util_delay_us(1000);
@@ -262,7 +335,11 @@ int adc_shared_read_supply(uint32_t *out_code) {
     const adc_mode_t prev = g_mode;
 
     sense_power(1);
+#if BISEN_HARVEST_ADC_DIAG_COMPARE
+    if (g_mode != ADC_MODE_SUPPLY) enter_mode(ADC_MODE_SUPPLY);
+#else
     enter_mode(ADC_MODE_SUPPLY);
+#endif
     // First conversion after a mode change sees the reference and sample/hold
     // still starting up. Discarding it is the same precaution the original
     // energy path took, and it costs one conversion rather than 5 ms.
@@ -280,6 +357,56 @@ int adc_shared_read_supply(uint32_t *out_code) {
     *out_code = median3(code0, code1, code2);
     return 0;
 }
+
+#if BISEN_HARVEST_ADC_DIAG_DEEP
+void adc_shared_diag_deep(adc_shared_deep_t *out) {
+    memset(out, 0, sizeof(*out));
+    resume_if_parked();
+
+    float t[4] = {0.0f, 0.0f, 0.0f, -123.456f};
+    out->trim_status = am_hal_adc_control(
+        g_h, AM_HAL_ADC_REQ_CORRECTION_TRIMS_GET, t);
+    out->trim_offset_x1e6 = (int32_t)(t[0] * 1.0e6f);
+    out->trim_gain_x1e6   = (int32_t)(t[1] * 1.0e6f);
+    out->trim_word3_x1e3  = (int32_t)(t[3] * 1.0e3f);
+
+    // Pass A: production supply config, full 12.6 result.
+    s_deep_full = 1;
+    enter_mode(ADC_MODE_SUPPLY);
+    out->cfg = ADC->CFG;
+    out->sl1cfg = ADC->SL1CFG;
+    (void)convert_once();
+    for (uint32_t i = 0u; i < ADC_DEEP_FULL_N; ++i) {
+        out->full[i] = convert_once();
+        am_util_delay_ms(1u);
+    }
+    s_deep_full = 0;
+
+    // Pass B: ADC kept powered between scans (LPMODE0), AVG16.
+    s_deep_lp = 0;
+    enter_mode(ADC_MODE_SUPPLY);
+    (void)convert_once();
+    for (uint32_t i = 0u; i < ADC_DEEP_LP0_N; ++i) {
+        const uint32_t v = convert_once();
+        out->lp0[i] = v == 0xFFFFFFFFu ? 0xFFFFu : (uint16_t)v;
+        am_util_delay_ms(1u);
+    }
+    s_deep_lp = -1;
+
+    // Pass C: production LPMODE1, no hardware averaging.
+    s_deep_avg1 = 1;
+    enter_mode(ADC_MODE_SUPPLY);
+    (void)convert_once();
+    for (uint32_t i = 0u; i < ADC_DEEP_AVG1_N; ++i) {
+        const uint32_t v = convert_once();
+        out->avg1[i] = v == 0xFFFFFFFFu ? 0xFFFFu : (uint16_t)v;
+        am_util_delay_ms(1u);
+    }
+    s_deep_avg1 = 0;
+
+    enter_mode(ADC_MODE_PIXEL);
+}
+#endif
 
 void adc_shared_park(void) {
 #if BISEN_HARVEST_PARK_ADC

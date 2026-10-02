@@ -1,0 +1,18 @@
+# V14 checkpoint characterization: commanded FG DC voltage, one value per 10 s.
+# Run with --trace-scale-mode raw --steps 12 --charge-s 120.
+# 0-30 s: high energy; arm continuous mode with BTN0 after VCAP is stable.
+7.8
+7.8
+7.8
+# 30-70 s: low command; diode isolation means actual VCAP falls under load.
+# Check that measured VCAP crosses below 6.20 V while VDD remains regulated.
+6.6
+6.6
+6.6
+6.6
+# 70-120 s: recharge above the configured 6.80 V resume threshold.
+7.5
+7.5
+7.5
+7.5
+7.5

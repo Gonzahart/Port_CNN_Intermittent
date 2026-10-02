@@ -75,6 +75,9 @@
 #if BISEN_TRACE_CALIBRATION_MODE && BISEN_CAMERA_ENABLE_MRAM
 #error "VDD calibration mode requires BISEN_CAMERA_ENABLE_MRAM=0"
 #endif
+#if BISEN_HARVEST_ADC_DIAG_COMPARE && !BISEN_TRACE_CALIBRATION_MODE
+#error "ADC comparison diagnostic is calibration-only"
+#endif
 
 namespace {
 
@@ -302,7 +305,14 @@ void offline_print() {
 
 #if BISEN_TRACE_CALIBRATION_MODE
 constexpr uint32_t kVddCalLogMagic = 0x48564343u;  // "HVCC", separate from trace calibration
-constexpr uint32_t kVddCalLogVersion = 1u;
+// The supply pin is part of the layout identity so records captured on one
+// input can never be printed by an image built for the other.
+// Version 3 adds ordered codes to the optional diagnostic record; old SRAM
+// records must not be interpreted using the new layout.
+constexpr uint32_t kVddCalLogVersion =
+    (1u + (BISEN_HARVEST_ADC_DIAG_COMPARE ? 2u : 0u) +
+     (BISEN_HARVEST_ADC_DIAG_DEEP ? 4u : 0u)) |
+    ((uint32_t)BISEN_HARVEST_DIAG_SUPPLY_PIN << 8);
 constexpr uint32_t kVddCalLogCapacity = 16u;
 
 struct VddCalibrationRecord {
@@ -314,6 +324,16 @@ struct VddCalibrationRecord {
     uint32_t code_max;
     uint32_t nominal_vdd_mv;
     uint32_t adc_mode_after;
+#if BISEN_HARVEST_ADC_DIAG_COMPARE
+    uint32_t supply_mode_held;
+    adc_shared_diag_stats_t adc_errors;
+    // Ordered policy samples; UINT16_MAX marks a failed read. The diagnostic
+    // prints these only on BTN1, after the measurement interval has ended.
+    uint16_t ordered_codes[BISEN_TRACE_CALIBRATION_SAMPLES];
+#endif
+#if BISEN_HARVEST_ADC_DIAG_DEEP
+    adc_shared_deep_t deep;
+#endif
 };
 
 struct VddCalibrationLog {
@@ -383,9 +403,10 @@ void vdd_cal_log_print() {
     }
     am_util_stdio_printf(
         "BISen camera HARVEST SRAM log: records=%lu capacity=%lu"
-        " volatile_only=1 MRAM_writes=0\n",
+        " volatile_only=1 MRAM_writes=0 supply_input=GPIO%u\n",
         (unsigned long)g_vdd_cal_log.record_count,
-        (unsigned long)kVddCalLogCapacity);
+        (unsigned long)kVddCalLogCapacity,
+        (unsigned)BISEN_HARVEST_DIAG_SUPPLY_PIN);
     for (uint32_t i = 0u; i < g_vdd_cal_log.record_count; ++i) {
         const VddCalibrationRecord &record = g_vdd_cal_log.records[i];
         am_util_stdio_printf(
@@ -400,6 +421,53 @@ void vdd_cal_log_print() {
             (unsigned long)record.code_max,
             (unsigned long)record.nominal_vdd_mv,
             (unsigned long)record.adc_mode_after);
+#if BISEN_HARVEST_ADC_DIAG_COMPARE
+        am_util_stdio_printf(
+            "BISen camera HARVEST ADC diagnostic #%lu: mode=%s"
+            " read_failures=%lu empty_reads=%lu wrong_slots=%lu"
+            " drain_failures=%lu\n",
+            (unsigned long)record.sequence,
+            record.supply_mode_held ? "held" : "switched",
+            (unsigned long)record.adc_errors.read_failures,
+            (unsigned long)record.adc_errors.empty_reads,
+            (unsigned long)record.adc_errors.wrong_slots,
+            (unsigned long)record.adc_errors.drain_failures);
+        am_util_stdio_printf(
+            "BISen camera HARVEST ADC ordered #%lu:",
+            (unsigned long)record.sequence);
+        for (uint32_t j = 0u; j < BISEN_TRACE_CALIBRATION_SAMPLES; ++j) {
+            am_util_stdio_printf(" %u", (unsigned)record.ordered_codes[j]);
+        }
+        am_util_stdio_printf("\n");
+#endif
+#if BISEN_HARVEST_ADC_DIAG_DEEP
+        const adc_shared_deep_t &d = record.deep;
+        am_util_stdio_printf(
+            "BISen camera HARVEST ADC deep #%lu: trims_status=%lu"
+            " offset_x1e6=%ld gain_x1e6=%ld word3_x1e3=%ld"
+            " CFG=0x%08lx SL1CFG=0x%08lx\n",
+            (unsigned long)record.sequence, (unsigned long)d.trim_status,
+            (long)d.trim_offset_x1e6, (long)d.trim_gain_x1e6,
+            (long)d.trim_word3_x1e3, (unsigned long)d.cfg,
+            (unsigned long)d.sl1cfg);
+        am_util_stdio_printf("BISen camera HARVEST ADC deep #%lu LP1-AVG16-full:",
+                             (unsigned long)record.sequence);
+        for (uint32_t j = 0u; j < ADC_DEEP_FULL_N; ++j) {
+            const uint32_t v = d.full[j];
+            if (v == 0xFFFFFFFFu) { am_util_stdio_printf(" X"); continue; }
+            am_util_stdio_printf(" %lu.%02lu", (unsigned long)(v >> 6),
+                                 (unsigned long)(((v & 63u) * 100u) / 64u));
+        }
+        am_util_stdio_printf("\nBISen camera HARVEST ADC deep #%lu LP0-AVG16:",
+                             (unsigned long)record.sequence);
+        for (uint32_t j = 0u; j < ADC_DEEP_LP0_N; ++j)
+            am_util_stdio_printf(" %u", (unsigned)d.lp0[j]);
+        am_util_stdio_printf("\nBISen camera HARVEST ADC deep #%lu LP1-AVG1:",
+                             (unsigned long)record.sequence);
+        for (uint32_t j = 0u; j < ADC_DEEP_AVG1_N; ++j)
+            am_util_stdio_printf(" %u", (unsigned)d.avg1[j]);
+        am_util_stdio_printf("\n");
+#endif
     }
 }
 #endif
@@ -692,6 +760,12 @@ bool restore_pending_workload() {
 #if BISEN_TRACE_CALIBRATION_MODE
 VddCalibrationRecord capture_vdd_calibration_record() {
     pp_mark_adc();
+#if BISEN_HARVEST_ADC_DIAG_COMPARE
+    const bool held = (g_vdd_cal_log.next_sequence & 1u) == 0u;
+    adc_shared_diag_reset();
+    if (held) adc_shared_set_mode(ADC_MODE_SUPPLY);
+#endif
+    VddCalibrationRecord record = {};
     uint64_t sum = 0u;
     uint32_t minimum = UINT32_MAX;
     uint32_t maximum = 0u;
@@ -704,11 +778,22 @@ VddCalibrationRecord capture_vdd_calibration_record() {
             if (code < minimum) minimum = code;
             if (code > maximum) maximum = code;
             ++valid;
+#if BISEN_HARVEST_ADC_DIAG_COMPARE
+            record.ordered_codes[i] = (uint16_t)code;
+#endif
+        } else {
+#if BISEN_HARVEST_ADC_DIAG_COMPARE
+            record.ordered_codes[i] = UINT16_MAX;
+#endif
         }
         am_util_delay_ms(2u);
     }
 
-    VddCalibrationRecord record = {};
+#if BISEN_HARVEST_ADC_DIAG_COMPARE
+    const adc_shared_diag_stats_t adc_errors = adc_shared_diag_get();
+    if (held) adc_shared_set_mode(ADC_MODE_PIXEL);
+#endif
+
     record.sequence = g_vdd_cal_log.next_sequence;
     record.requested_samples = BISEN_TRACE_CALIBRATION_SAMPLES;
     record.valid_samples = valid;
@@ -719,7 +804,14 @@ VddCalibrationRecord capture_vdd_calibration_record() {
         record.nominal_vdd_mv =
             adc_shared_supply_nominal_millivolts(record.code_mean);
     }
+#if BISEN_HARVEST_ADC_DIAG_DEEP
+    adc_shared_diag_deep(&record.deep);
+#endif
     record.adc_mode_after = (uint32_t)adc_shared_mode();
+#if BISEN_HARVEST_ADC_DIAG_COMPARE
+    record.supply_mode_held = held ? 1u : 0u;
+    record.adc_errors = adc_errors;
+#endif
     pp_mark_sleep();
     return record;
 }
@@ -743,8 +835,9 @@ void report_captured_vdd_record(const VddCalibrationRecord &record) {
             (unsigned long)record.nominal_vdd_mv);
         am_util_stdio_printf(
             "BISen camera HARVEST calibration audit: ADC_mode_after=%u;"
-            " code_mean is the physical ADCSE3 code\n",
-            (unsigned)record.adc_mode_after);
+            " code_mean is the physical GPIO%u supply ADC code\n",
+            (unsigned)record.adc_mode_after,
+            (unsigned)BISEN_HARVEST_DIAG_SUPPLY_PIN);
         pp_mark_sleep();
     }
 }
@@ -757,6 +850,11 @@ void report_captured_vdd_record(const VddCalibrationRecord &record) {
         "  BTN1: print all retained points after J-Link USB is reconnected\n"
         "  Do not press RESET between capture and readout; a reset is tolerated"
         " while VDD remains powered, but a VDD power loss invalidates SRAM.\n");
+#if BISEN_HARVEST_ADC_DIAG_COMPARE
+    am_util_stdio_printf(
+        "  ADC comparison: odd records=switched, even records=held supply mode;"
+        " FIFO read/count/slot errors and ordered ADC codes are retained.\n");
+#endif
     vdd_cal_log_print();
     pp_mark_sleep();
 
@@ -1109,6 +1207,12 @@ int main() {
         "BISen camera HARVEST CALIBRATION MODE: workload=off MRAM=off"
         " policy_thresholds=unset samples=%u\n",
         (unsigned)BISEN_TRACE_CALIBRATION_SAMPLES);
+#if BISEN_HARVEST_DIAG_SUPPLY_PIN != 16
+    am_util_stdio_printf(
+        "BISen camera HARVEST DIAGNOSTIC: supply ADC input is GPIO%u/ADCSE2,"
+        " NOT GPIO16; GPIO16 left unconfigured. Calibration-only.\n",
+        (unsigned)BISEN_HARVEST_DIAG_SUPPLY_PIN);
+#endif
     run_vdd_calibration_diagnostic();
 #endif
 

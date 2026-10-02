@@ -10,16 +10,15 @@ local_src += $(wildcard $(subdirectory)/src/bisen/*.cc)
 local_src += $(wildcard $(subdirectory)/src/*.cpp)
 local_src += $(wildcard $(subdirectory)/src/*.s)
 local_bin := $(BINDIR)/$(subdirectory)
-LINKER_FILE := ./apps/bisen_camera_harvest/bisen_camera_harvest_checkpoint.ld
+LINKER_FILE := ./apps/bisen_camera_harvest_IS/bisen_camera_harvest_checkpoint.ld
 
 # FG -> diode -> physical VCAP bank -> MP1584EN -> Apollo board.
 # GPIO16 observes VCAP; GPIO15 remains the camera pixel ADC input.
 BISEN_HARVEST_CALIBRATION_MODE ?= 1
 BISEN_CAMERA_ENABLE_MRAM ?= 0
-# Checkpoint-format identity. HVR1 remains the app default; dedicated
-# validation images may select another identity so a stale persistent record
-# from an older firmware cannot be adopted after flashing.
-BISEN_HARVEST_CHECKPOINT_MAGIC ?= 0x48565231
+# IS01 identifies the r2a input-stationary checkpoint and session format.
+# Keep it distinct from OS01 and the older HVR identities.
+BISEN_HARVEST_CHECKPOINT_MAGIC ?= 0x49533031
 BISEN_HARVEST_DIVIDER_TOP_OHM ?= 390000
 BISEN_HARVEST_DIVIDER_BOTTOM_OHM ?= 10000
 BISEN_HARVEST_MAX_VCAP_UV ?= 8000000

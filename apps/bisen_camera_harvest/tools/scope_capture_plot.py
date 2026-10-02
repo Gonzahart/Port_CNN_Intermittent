@@ -49,6 +49,15 @@ STATE_DAC_LABEL_PROFILES = {
 
 DEFAULT_STATE_DAC_PROFILE = "apollo-camera"
 
+# The installed Apollo camera ladder uses GPIO62/63/61 (firmware bits 0/1/2)
+# through 99.3/201/398 kOhm. Its analog weights are therefore 4/2/1, not
+# 1/2/4. The scope's normalized seven-level code reverses bits 0 and 2.
+STATE_DAC_LADDER_TO_FIRMWARE = {
+    "apollo-camera": np.array([0, 4, 2, 6, 1, 5, 3, 7], dtype=np.int16),
+    "apollo-port": np.arange(8, dtype=np.int16),
+    "msp430": np.arange(8, dtype=np.int16),
+}
+
 STATE_DAC_COLORS = {
     0: "#d9d9d9",
     1: "tab:blue",
@@ -493,13 +502,22 @@ def suppress_short_state_runs(code, min_run_samples=2):
             return filtered
 
 
+def firmware_codes_from_ladder(ladder_codes, state_profile):
+    """Convert normalized ladder levels to the firmware's GPIO bit codes."""
+    return STATE_DAC_LADDER_TO_FIRMWARE[state_profile][
+        np.asarray(ladder_codes, dtype=np.intp)
+    ]
+
+
 def add_state_dac_decode(
     df,
     state_col,
     vcc_col=None,
     vcc_volts=None,
     min_vcc=0.5,
-    min_run_samples=2
+    min_run_samples=2,
+    state_profile=DEFAULT_STATE_DAC_PROFILE,
+    min_run_us=None,
 ):
     state_v = df[state_col].to_numpy()
     if vcc_volts is not None:
@@ -513,12 +531,26 @@ def add_state_dac_decode(
     ratio = np.zeros_like(state_v, dtype=np.float64)
     ratio[valid] = state_v[valid] / vcc[valid]
 
-    code = np.rint(ratio * 7.0).astype(np.int16)
-    code = np.clip(code, 0, 7)
-    code[~valid] = 0
+    ladder_code = np.rint(ratio * 7.0).astype(np.int16)
+    ladder_code = np.clip(ladder_code, 0, 7)
+    ladder_code[~valid] = 0
+    code = firmware_codes_from_ladder(ladder_code, state_profile)
 
     df["state_dac_ratio"] = ratio
+    df["state_code_ladder"] = ladder_code
     df["state_code_raw"] = code
+    # At the installed camera ladder, a GPIO edge can overshoot into an
+    # adjacent analog band for tens of microseconds. Do not report that edge
+    # transient as a checkpoint notification. Keep the raw decode for audit.
+    if min_run_us is None:
+        min_run_us = 100.0 if state_profile == "apollo-camera" else 0.0
+    if min_run_us > 0 and len(df) > 1:
+        sample_period_s = float(np.median(np.diff(df["time_s"].to_numpy())))
+        if sample_period_s > 0:
+            min_run_samples = max(
+                min_run_samples,
+                int(math.ceil(min_run_us * 1e-6 / sample_period_s)),
+            )
     df["state_code"] = suppress_short_state_runs(
         code,
         min_run_samples=min_run_samples
@@ -617,6 +649,7 @@ def plot_capture(
     max_plot_points=20000,
     state_dac_ch=None,
     state_labels=None,
+    state_profile=DEFAULT_STATE_DAC_PROFILE,
 ):
     if state_labels is None:
         state_labels = STATE_DAC_LABEL_PROFILES[DEFAULT_STATE_DAC_PROFILE]
@@ -722,7 +755,8 @@ def plot_capture(
                 out=np.zeros_like(state_v, dtype=np.float64),
                 where=vcc > 0.5
             )
-            state_code = np.clip(np.rint(ratio * 7.0), 0, 7)
+            ladder_code = np.clip(np.rint(ratio * 7.0), 0, 7)
+            state_code = firmware_codes_from_ladder(ladder_code, state_profile)
             state_time = plot_df["time_s"]
 
         ax_state.step(
@@ -858,6 +892,11 @@ def main():
         )
     )
     parser.add_argument("--out", default="scope_capture")
+    parser.add_argument(
+        "--input-csv",
+        type=Path,
+        help="Re-decode a saved raw capture without connecting to the scope; --out must differ",
+    )
     parser.add_argument("--cap-f", type=float, default=0.1)
     parser.add_argument("--marker-ch", type=int, default=2)
     parser.add_argument("--marker-threshold", type=float, default=1.0)
@@ -867,7 +906,8 @@ def main():
         choices=sorted(STATE_DAC_LABEL_PROFILES),
         default=DEFAULT_STATE_DAC_PROFILE,
         help=(
-            "State-DAC label map. Use apollo-camera for BISen camera/CNN, "
+            "State-DAC label and resistor-wiring map. Use apollo-camera for "
+            "the installed GPIO62/63/61 99.3/201/398 kOhm ladder, "
             "apollo-port for the Sobel bring-up app, or msp430 for the "
             "original experiment."
         ),
@@ -888,6 +928,12 @@ def main():
             "Suppress decoded state runs shorter than this many samples; "
             "the unfiltered result remains in state_code_raw."
         )
+    )
+    parser.add_argument(
+        "--state-min-run-us",
+        type=float,
+        default=None,
+        help="Minimum decoded state duration in microseconds; default 100 for apollo-camera, 0 otherwise",
     )
     parser.add_argument("--no-energy", action="store_true")
     parser.add_argument("--debug", action="store_true")
@@ -923,72 +969,87 @@ def main():
         help="Reject waveform transfers shorter than this many samples."
     )
     args = parser.parse_args()
+    if args.state_min_run_us is not None and args.state_min_run_us < 0:
+        parser.error("--state-min-run-us must be nonnegative")
 
     manual_vdivs = parse_channel_overrides(args.manual_vdiv)
     manual_offsets = parse_channel_overrides(args.manual_offset)
 
-    rm = pyvisa.ResourceManager()
+    scope = None
+    if args.input_csv is not None:
+        if args.list or args.run_after:
+            parser.error("--input-csv cannot be combined with --list or --run-after")
+        if Path(args.out + ".csv").resolve() == args.input_csv.resolve():
+            parser.error("--out must not overwrite the input capture")
+        df = pd.read_csv(args.input_csv)
+        required = {"time_s"} | {f"ch{ch}_v" for ch in args.channels}
+        missing = sorted(required - set(df.columns))
+        if missing:
+            parser.error(f"input capture is missing: {', '.join(missing)}")
+        print(f"Re-decoding saved capture: {args.input_csv}")
+    else:
+        rm = pyvisa.ResourceManager()
 
-    if args.list:
-        print("Available VISA resources:")
-        for resource in rm.list_resources():
-            print(resource)
-        return
+        if args.list:
+            print("Available VISA resources:")
+            for resource in rm.list_resources():
+                print(resource)
+            return
 
-    scope, resource, identity = open_scope(
-        resource_manager=rm,
-        requested_resource=args.resource
-    )
-    print(f"Connected to {resource}: {identity}")
-
-    if not args.no_stop:
-        print("Stopping scope acquisition before transfer...")
-        scope.write("STOP")
-        time.sleep(0.3)
-
-    data = {}
-
-    for ch in args.channels:
-        print(f"Capturing CH{ch}")
-
-        data[f"ch{ch}_v"] = capture_channel(
-            scope=scope,
-            channel=ch,
-            points=args.points,
-            manual_vdiv=manual_vdivs.get(ch),
-            manual_offset=manual_offsets.get(ch),
-            debug=args.debug,
-            waveform_source=args.waveform_source,
-            sparsing=args.sparsing,
-            min_samples=args.min_samples
+        scope, resource, identity = open_scope(
+            resource_manager=rm,
+            requested_resource=args.resource
         )
+        print(f"Connected to {resource}: {identity}")
 
-    min_len = min(len(values) for values in data.values())
+        if not args.no_stop:
+            print("Stopping scope acquisition before transfer...")
+            scope.write("STOP")
+            time.sleep(0.3)
 
-    if min_len == 0:
-        raise RuntimeError(
-            "All captured channels returned 0 samples. "
-            "Make sure the scope has a captured waveform on screen, channels are ON, "
-            "and try using DAT2/DAT1 waveform source fallback."
-        )
+        data = {}
 
-    if min_len < args.min_samples:
-        raise RuntimeError(
-            f"Scope transfer returned only {min_len} samples. "
-            "That is too short to be a valid capture; try --waveform-source auto "
-            "or --waveform-source display, check the scope memory/depth setting, "
-            "and rerun with --debug."
-        )
+        for ch in args.channels:
+            print(f"Capturing CH{ch}")
 
-    for key in data:
-        data[key] = data[key][:min_len]
+            data[f"ch{ch}_v"] = capture_channel(
+                scope=scope,
+                channel=ch,
+                points=args.points,
+                manual_vdiv=manual_vdivs.get(ch),
+                manual_offset=manual_offsets.get(ch),
+                debug=args.debug,
+                waveform_source=args.waveform_source,
+                sparsing=args.sparsing,
+                min_samples=args.min_samples
+            )
 
-    time_axis = get_time_axis(scope, min_len, origin=args.time_origin)
+        min_len = min(len(values) for values in data.values())
 
-    df = pd.DataFrame({"time_s": time_axis})
+        if min_len == 0:
+            raise RuntimeError(
+                "All captured channels returned 0 samples. "
+                "Make sure the scope has a captured waveform on screen, channels are ON, "
+                "and try using DAT2/DAT1 waveform source fallback."
+            )
 
-    for key, values in data.items():
-        df[key] = values
+        if min_len < args.min_samples:
+            raise RuntimeError(
+                f"Scope transfer returned only {min_len} samples. "
+                "That is too short to be a valid capture; try --waveform-source auto "
+                "or --waveform-source display, check the scope memory/depth setting, "
+                "and rerun with --debug."
+            )
+
+        for key in data:
+            data[key] = data[key][:min_len]
+
+        time_axis = get_time_axis(scope, min_len, origin=args.time_origin)
+
+        df = pd.DataFrame({"time_s": time_axis})
+
+        for key, values in data.items():
+            df[key] = values
 
     state_events_path = Path(args.out + "_state_events.csv")
 
@@ -1017,7 +1078,9 @@ def main():
             vcc_col=state_vcc_col,
             vcc_volts=args.state_vcc_volts,
             min_vcc=args.state_min_vcc,
-            min_run_samples=args.state_min_run_samples
+            min_run_samples=args.state_min_run_samples,
+            state_profile=args.state_profile,
+            min_run_us=args.state_min_run_us,
         )
 
     csv_path = Path(args.out + ".csv")
@@ -1036,6 +1099,7 @@ def main():
         max_plot_points=args.max_plot_points,
         state_dac_ch=args.state_dac_ch,
         state_labels=STATE_DAC_LABEL_PROFILES[args.state_profile],
+        state_profile=args.state_profile,
     )
 
     print("Saved plot:", png_path)
@@ -1089,10 +1153,11 @@ def main():
         else:
             print("No marker pulses detected. Try lowering --marker-threshold or check CH marker.")
 
-    if args.run_after:
+    if args.run_after and scope is not None:
         scope.write("RUN")
 
-    close_resource(scope)
+    if scope is not None:
+        close_resource(scope)
 
 
 if __name__ == "__main__":

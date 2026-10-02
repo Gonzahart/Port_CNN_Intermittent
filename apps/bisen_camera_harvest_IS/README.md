@@ -1,5 +1,15 @@
 # BISen camera: physical VCAP / MP1584EN build
 
+## Current r2a input-stationary package
+
+This checkout builds `EXAMPLE=bisen_camera_harvest_IS` directly. Its module
+selects `NN_DATAFLOW=1`, `NN_SIMD=1`, `NN_MAX_CONV_IN_C=6`, the app-local
+checkpoint linker script, and checkpoint/session identity IS01
+(`0x49533031`). The three shared engine headers are included locally. See
+`../../docs/RUIC_R2A_PAIR_RUN.md` for the matched OS/IS build and bench
+comparison. The older `bisen_camera_harvest` examples below describe the
+original app unless an example explicitly names this IS package.
+
 `bisen_camera_harvest` is a separate Apollo4 Plus BGA EVB Rev. 1 app, forked
 from `bisen_camera_trace`. The older `bisen_camera_trace`, `bisen_camera_vdd`,
 and `bisen_camera` apps remain available. This app keeps the 32×32 camera,
@@ -296,3 +306,17 @@ subtract, or a differential probe.
 The ADC conversion range and MP1584 input range cited above come from the
 [Ambiq Apollo4 Plus datasheet](https://ambiq.com/wp-content/uploads/2022/03/Apollo4-Plus-SoC-Datasheet.pdf)
 and [MPS MP1584 product page](https://www.monolithicpower.com/en/products/power-management/switching-converters-controllers/step-down-buck/converters/mp1584.html).
+
+
+## State-DAC completion notification (2026-09-29)
+
+Successful checkpoint, retirement and session writes emit code 5 after their
+code-4 write interval. This is a completion notification like the inspected
+MSP430 reference, not a second write phase. It remains on the state bus until
+the next marked activity; no fixed pulse duration or extra delay is added.
+Commit counters, return-value checks, header-last storage writes and error
+handling remain intact. Other DAC codes retain their numbers. Code 5 can also
+follow session and retirement writes, so it alone is not a workload checkpoint
+count. See `docs/RUIC_STATE_DAC.md` for the mapping, MSP430 comparison, wait
+behavior and restore-energy instrumentation limitation. Rebuild and flash to
+apply this change; existing captures/binaries retain their previous behavior.

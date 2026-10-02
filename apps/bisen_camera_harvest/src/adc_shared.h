@@ -3,6 +3,25 @@
 
 #include <stdint.h>
 
+#ifndef BISEN_HARVEST_ADC_DIAG_COMPARE
+#define BISEN_HARVEST_ADC_DIAG_COMPARE 0
+#endif
+
+// Calibration-only diagnostic: which pad feeds the supply ADC slot.
+// 16 = J9.8/GPIO16/ADCSE3 (production default). 17 = GPIO17/ADCSE2, used only
+// to test whether the GPIO16/SE3 input path is at fault (2026-10-01).
+#ifndef BISEN_HARVEST_DIAG_SUPPLY_PIN
+#define BISEN_HARVEST_DIAG_SUPPLY_PIN 16
+#endif
+
+// Calibration-only deep ADC diagnostic (2026-10-01). After each BTN0 capture
+// it records the HAL correction trims, ADC CFG/SL1CFG, and three extra passes
+// on the supply input: production config with full 12.6 precision, LPMODE0
+// (ADC kept powered between scans), and AVG_1 single conversions.
+#ifndef BISEN_HARVEST_ADC_DIAG_DEEP
+#define BISEN_HARVEST_ADC_DIAG_DEEP 0
+#endif
+
 // adc_shared.h -- the single owner of Apollo4 ADC instance 0.
 //
 // WHY THIS FILE EXISTS
@@ -66,6 +85,39 @@ uint32_t adc_shared_read_pixel(void);
 // The CALLER converts the code to millivolts. This file deliberately does not,
 // so the bench calibration stays in bisen_config.h where its author put it.
 int adc_shared_read_supply(uint32_t *out_code);
+
+#if BISEN_HARVEST_ADC_DIAG_COMPARE
+typedef struct {
+    uint32_t read_failures;
+    uint32_t empty_reads;
+    uint32_t wrong_slots;
+    uint32_t drain_failures;
+} adc_shared_diag_stats_t;
+
+void adc_shared_diag_reset(void);
+adc_shared_diag_stats_t adc_shared_diag_get(void);
+#endif
+
+#if BISEN_HARVEST_ADC_DIAG_DEEP
+#define ADC_DEEP_FULL_N 16u
+#define ADC_DEEP_LP0_N  32u
+#define ADC_DEEP_AVG1_N 64u
+typedef struct {
+    uint32_t trim_status;        // am_hal_adc_control() return code
+    int32_t  trim_offset_x1e6;   // HAL offset correction x 1e6
+    int32_t  trim_gain_x1e6;     // HAL gain correction x 1e6
+    int32_t  trim_word3_x1e3;    // 4th float returned by the HAL x 1e3
+    uint32_t cfg;                // ADC->CFG during the production pass
+    uint32_t sl1cfg;             // ADC->SL1CFG during the production pass
+    uint32_t full[ADC_DEEP_FULL_N];   // LPMODE1 AVG16, 12.6 fixed point
+    uint16_t lp0[ADC_DEEP_LP0_N];     // LPMODE0 AVG16 integer codes
+    uint16_t avg1[ADC_DEEP_AVG1_N];   // LPMODE1 AVG1 integer codes
+} adc_shared_deep_t;
+
+// Runs the three passes; leaves the ADC back in pixel mode. Failed
+// conversions are stored as 0xFFFFFFFF / 0xFFFF.
+void adc_shared_diag_deep(adc_shared_deep_t *out);
+#endif
 
 // Roughly what one adc_shared_read_supply() costs, in microseconds. This
 // includes one discarded and three accepted averaged conversions plus mode

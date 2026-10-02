@@ -10,7 +10,7 @@ local_src += $(wildcard $(subdirectory)/src/bisen/*.cc)
 local_src += $(wildcard $(subdirectory)/src/*.cpp)
 local_src += $(wildcard $(subdirectory)/src/*.s)
 local_bin := $(BINDIR)/$(subdirectory)
-LINKER_FILE := ./apps/bisen_camera_harvest/bisen_camera_harvest_checkpoint.ld
+LINKER_FILE := ./apps/bisen_camera_harvest_OS/bisen_camera_harvest_OS/bisen_camera_harvest_checkpoint.ld
 
 # FG -> diode -> physical VCAP bank -> MP1584EN -> Apollo board.
 # GPIO16 observes VCAP; GPIO15 remains the camera pixel ADC input.

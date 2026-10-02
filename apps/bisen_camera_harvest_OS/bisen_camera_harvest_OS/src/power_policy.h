@@ -170,18 +170,19 @@ void     pp_bus_reset(void);
 //
 // bisen_instrumentation.cc is copied in verbatim and keeps the MSP430 BISen
 // encoding: 0=sleep 1=VCAP ADC 2=sense/camera 3=compute 4=MRAM write
-// 5=checkpoint committed 6=context restore 7=boot/error, on GPIO 62/63/61
-// (AMAP4PEVB J12 pins 7/9/11). Those pins are free in this application.
+// 5=commit notification, 6=context restore, 7=boot/error,
+// on GPIO 62/63/61 (AMAP4PEVB J12 pins 7/9/11). Those pins are free here.
 //
 // Their scheduler drives it from its own State enum; this one has no such
 // state machine, so our phases are mapped onto the same codes through
 // instrumentation_set_code(). A trace captured here decodes with the same
 // key as one captured on the bisen_port build.
 //
-// Codes 5-7 are event markers -- they insert no delay and are replaced by
-// whatever runs next. The three pins pass briefly through zero when the bank
-// changes, so decode stable intervals rather than treating that sub-instruction
-// transition as a sleep event.
+// Codes 5-7 are notifications -- they insert no delay and are replaced by
+// whatever activity runs next. Code 5 marks successful completion of the
+// preceding write; it does not perform another checkpoint. The three pins
+// pass briefly through zero when the bank changes, so decode stable intervals
+// rather than treating that sub-instruction transition as a sleep event.
 void pp_instr_init(void);
 void pp_mark_boot(void);
 void pp_mark_sleep(void);
@@ -189,6 +190,7 @@ void pp_mark_adc(void);
 void pp_mark_camera(void);
 void pp_mark_compute(void);
 void pp_mark_nvm_write(void);
+// Notify the state bus of a successful write; caller retains commit accounting.
 void pp_mark_committed(void);
 void pp_mark_restore(void);
 
