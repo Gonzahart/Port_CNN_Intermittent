@@ -1,0 +1,47 @@
+{
+  "n": 10000,
+  "dataset": "MNIST t10k (official IDX, MD5-checked), 28x28 centred in 32x32",
+  "model_manifest": {
+    "capuchin_upstream": "https://github.com/leleonardzhang/Capuchin@76b6eb223f1b6da27520064a8f52b9df6fa4cab5",
+    "encoder_sha256": "d831518239e58dbaaaad425c419845be38814642b2a5fe1f569233cee2adf7bc",
+    "avgpool_extension_code": 6,
+    "weight_source": "ruic_int8_header_reconstruction",
+    "ruic_header": "lenet_weights.h",
+    "ruic_header_sha256": "f2d631c33d698a6639559788bc19f3a98cbadce77604096004e5fe554c4a138f",
+    "act_range": [
+      4.0
+    ],
+    "logit_mult": 1.0,
+    "model_array_length": 61758,
+    "model_array_sha256": "0b60b8057f7129da8efad5c77b55cd0f803add2ed44ce44e1e116a12cee7a36b",
+    "msp430_header_sha256": "bfb873d17f2a6539f10fccb433e308c49bc0023af547cd9379243e418263db2c",
+    "apollo4_header_sha256": "f2e6abe3428936d50292d6527b3f6b5af7b781f1b66d23da12ce48b4fccac6a9",
+    "weights_saturated_q10": 0
+  },
+  "accuracy": {
+    "ruic_int8_engine_r2a_OS": 0.9892,
+    "capuchin_lea_path_q5_10": 0.9893,
+    "capuchin_cpu_path_q5_10": 0.9889,
+    "float_reconstruction": 0.9893
+  },
+  "ruic_top_score_ties": 9,
+  "capuchin_numeric_audit": "audit mpy_outputs=145180000 mpy_acc32_overflow=0 mpy_out_saturated=0 shift_outputs=145180000 shift_wrapped=0\nkernel=dsplib-sw",
+  "vs_ruic_capuchin_lea": {
+    "label_agreement": 0.9995,
+    "ruic_right_other_wrong": 2,
+    "ruic_wrong_other_right": 3,
+    "mcnemar_exact_p": 1.0
+  },
+  "vs_ruic_capuchin_cpu": {
+    "label_agreement": 0.9986,
+    "ruic_right_other_wrong": 7,
+    "ruic_wrong_other_right": 4,
+    "mcnemar_exact_p": 0.548828125
+  },
+  "vs_ruic_float": {
+    "label_agreement": 0.9994,
+    "ruic_right_other_wrong": 2,
+    "ruic_wrong_other_right": 3,
+    "mcnemar_exact_p": 1.0
+  }
+}

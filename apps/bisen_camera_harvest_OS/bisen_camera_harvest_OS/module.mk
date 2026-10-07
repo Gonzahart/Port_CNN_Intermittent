@@ -13,7 +13,7 @@ local_bin := $(BINDIR)/$(subdirectory)
 LINKER_FILE := ./apps/bisen_camera_harvest_OS/bisen_camera_harvest_OS/bisen_camera_harvest_checkpoint.ld
 
 # FG -> diode -> physical VCAP bank -> MP1584EN -> Apollo board.
-# GPIO16 observes VCAP; GPIO15 remains the camera pixel ADC input.
+# GPIO17 observes VCAP (BISEN_HARVEST_SUPPLY_PIN); GPIO15 remains the camera pixel ADC input.
 BISEN_HARVEST_CALIBRATION_MODE ?= 1
 BISEN_CAMERA_ENABLE_MRAM ?= 0
 # Checkpoint-format identity: OS01, engine-r2a OS with this model/codec.
@@ -62,6 +62,12 @@ BISEN_HARVEST_OFFLINE_VALIDATE ?= 0
 BISEN_CAMERA_APITEST ?= 0
 BISEN_CAMERA_SCAN_IDLE_MODE ?= 1
 BISEN_CAMERA_SCAN_MAX_UNITS ?= 1
+# VCAP divider ADC input: 17 = GPIO17/ADCSE2 (default since 2026-10-05),
+# 16 = legacy J9.8/GPIO16/ADCSE3.
+BISEN_HARVEST_SUPPLY_PIN ?= 17
+# Pad the CAL_* anchors were fitted on; full builds require it to equal
+# BISEN_HARVEST_SUPPLY_PIN (fit_vcap_calibration.py prints it). 0 = unset.
+BISEN_HARVEST_CAL_PIN ?= 0
 BISEN_TRACE_CALIBRATION_SAMPLES ?= 32
 
 pp_defines += WL_EXTERNAL_DRIVER=1 BISEN_ENABLE_COMPUTE_WORKLOAD=1
@@ -86,6 +92,8 @@ pp_defines += SCAN_IDLE_MODE=$(BISEN_CAMERA_SCAN_IDLE_MODE)
 pp_defines += BISEN_CAMERA_SCAN_MAX_UNITS=$(BISEN_CAMERA_SCAN_MAX_UNITS)
 pp_defines += BISEN_TRACE_CALIBRATION_MODE=$(BISEN_HARVEST_CALIBRATION_MODE)
 pp_defines += BISEN_TRACE_CALIBRATION_SAMPLES=$(BISEN_TRACE_CALIBRATION_SAMPLES)
+pp_defines += BISEN_HARVEST_SUPPLY_PIN=$(BISEN_HARVEST_SUPPLY_PIN)
+pp_defines += BISEN_HARVEST_CAL_PIN=$(BISEN_HARVEST_CAL_PIN)
 pp_defines += CKPT_USE_MRAM=$(BISEN_CAMERA_ENABLE_MRAM) CKPT_MRAM_TRACE=1
 pp_defines += BISEN_HARVEST_DIVIDER_TOP_OHM=$(BISEN_HARVEST_DIVIDER_TOP_OHM)
 pp_defines += BISEN_HARVEST_DIVIDER_BOTTOM_OHM=$(BISEN_HARVEST_DIVIDER_BOTTOM_OHM)

@@ -1,0 +1,20 @@
+{
+  "repository": "https://github.com/leleonardzhang/Capuchin",
+  "commit": "76b6eb223f1b6da27520064a8f52b9df6fa4cab5",
+  "note": "Pristine copies of the upstream files this port uses are kept under upstream/. TI DSPLib routines are reproduced in src/port/dsplib_sw.c from capuchin-MCU/DSPLib (BSD-3-Clause).",
+  "files": {
+    "capuchin-MCU/decoder/decoder.c": "28425f45f57ccb2196568e9237f908553ba9751e6edb1d204b03e0a34f560b52",
+    "capuchin-MCU/decoder/decoder.h": "35a7fc9218c97551fc308130cf5b0424f58c04534f67f52e82203267589eed14",
+    "capuchin-MCU/layers/layers.c": "8bfa302d1929f7a43a97f5528f89611c714490833662f491cee73670a8653c7e",
+    "capuchin-MCU/layers/layers.h": "1f853c8fcb910b8adbf5467cd46041cd8c04c801940746ae00d396f41f4a3766",
+    "capuchin-MCU/main.c": "eac76e38da520faee2a92beaaad9916a56332567fb76e102f55cf1aa2b55cb99",
+    "capuchin-MCU/main.h": "9d8b554d43c1ca5751e9a733899f7ee8862f8270a66258a5277a7be5e2d1aa16",
+    "capuchin-MCU/math/fixed_point_ops.c": "3b90e5be970997a0d3330b28f65d174e6eaabfbb68518ad6e8c88abc3324a3dc",
+    "capuchin-MCU/math/fixed_point_ops.h": "2894f77b09320cbe3cbb7fbd03ebc17665aa944a67046055765de90e08993186",
+    "capuchin-MCU/math/matrix.h": "2224107a9ab7aca93c6a3225bd3a03d445075c372a78f520a547d690efc82293",
+    "capuchin-MCU/math/matrix_ops.c": "4cc8569c5d6146d1fa1bbf54f0ece8ca71289de4e1097523a8248c9b69361740",
+    "capuchin-MCU/math/matrix_ops.h": "ee3e90bc8af7b3a7f3c4271f6a89b172b36d03d70a9cd35e55a478e30b5a6529",
+    "capuchin-MCU/utils/utils.h": "2ff71fdd628e172ed42e20b4353547bf9a83c880860b414f9e0bf122acddb052",
+    "encoder.py": "d831518239e58dbaaaad425c419845be38814642b2a5fe1f569233cee2adf7bc"
+  }
+}

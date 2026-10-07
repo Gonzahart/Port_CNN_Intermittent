@@ -1,0 +1,15 @@
+# Down-pass BTN1 readout as pasted by the user in chat on 2026-10-06 (the tee file for this readout was not captured).
+BISen camera HARVEST SRAM log: records=13 capacity=16 volatile_only=1 MRAM_writes=0 supply_input=GPIO17
+BISen camera HARVEST retained point #1: samples=32 valid=32 code_mean=655 code_min=647 code_max=661 VCAP_nominal_mV=7611 mV ADC_mode_after=0
+BISen camera HARVEST retained point #2: samples=32 valid=32 code_mean=653 code_min=644 code_max=661 VCAP_nominal_mV=7588 mV ADC_mode_after=0
+BISen camera HARVEST retained point #3: samples=32 valid=32 code_mean=630 code_min=620 code_max=637 VCAP_nominal_mV=7321 mV ADC_mode_after=0
+BISen camera HARVEST retained point #4: samples=32 valid=32 code_mean=629 code_min=617 code_max=637 VCAP_nominal_mV=7309 mV ADC_mode_after=0
+BISen camera HARVEST retained point #5: samples=32 valid=32 code_mean=604 code_min=596 code_max=613 VCAP_nominal_mV=7019 mV ADC_mode_after=0
+BISen camera HARVEST retained point #6: samples=32 valid=32 code_mean=603 code_min=590 code_max=617 VCAP_nominal_mV=7007 mV ADC_mode_after=0
+BISen camera HARVEST retained point #7: samples=32 valid=32 code_mean=578 code_min=573 code_max=586 VCAP_nominal_mV=6716 mV ADC_mode_after=0
+BISen camera HARVEST retained point #8: samples=32 valid=32 code_mean=552 code_min=546 code_max=563 VCAP_nominal_mV=6414 mV ADC_mode_after=0
+BISen camera HARVEST retained point #9: samples=32 valid=32 code_mean=552 code_min=542 code_max=559 VCAP_nominal_mV=6414 mV ADC_mode_after=0
+BISen camera HARVEST retained point #10: samples=32 valid=32 code_mean=526 code_min=519 code_max=535 VCAP_nominal_mV=6112 mV ADC_mode_after=0
+BISen camera HARVEST retained point #11: samples=32 valid=32 code_mean=526 code_min=515 code_max=535 VCAP_nominal_mV=6112 mV ADC_mode_after=0
+BISen camera HARVEST retained point #12: samples=32 valid=32 code_mean=501 code_min=485 code_max=519 VCAP_nominal_mV=5822 mV ADC_mode_after=0
+BISen camera HARVEST retained point #13: samples=32 valid=32 code_mean=475 code_min=468 code_max=485 VCAP_nominal_mV=5520 mV ADC_mode_after=0

@@ -1,0 +1,41 @@
+Fit: code = -1.47 + 85.195 * VCAP[V]   (25 points)
+     => 1 code = 11.7 mV of VCAP
+
+Supply pad: GPIO17
+
+ rec  VCAP_V     PIN_V  mean  min-max  spread  resid  mode
+   1   7.700       -     655   647-661      14   +0.5  
+   2   7.700       -     653   644-661      17   -1.5  
+   3   7.400       -     630   620-637      17   +1.0  
+   4   7.400       -     629   617-637      20   +0.0  
+   5   7.100       -     604   596-613      17   +0.6  
+   6   7.100       -     603   590-617      27   -0.4  
+   7   6.800       -     578   573-586      13   +0.1  
+   8   6.500       -     552   546-563      17   -0.3  
+   9   6.500       -     552   542-559      17   -0.3  
+  10   6.200       -     526   519-535      16   -0.7  
+  11   6.200       -     526   515-535      20   -0.7  
+  12   5.900       -     501   485-519      34   -0.2  
+  13   5.600       -     475   468-485      17   -0.6  
+  14   5.600       -     477   468-481      13   +1.4  
+  15   5.900       -     502   495-512      17   +0.8  
+  16   5.900       -     501   491-505      14   -0.2  
+  17   6.200       -     529   522-535      13   +2.3  
+  18   6.500       -     550   542-559      17   -2.3  
+  19   6.500       -     552   542-559      17   -0.3  
+  20   6.800       -     577   566-590      24   -0.9  
+  21   7.100       -     605   590-613      23   +1.6  
+  22   7.100       -     602   593-610      17   -1.4  
+  23   7.400       -     629   620-644      24   +0.0  
+  24   7.400       -     630   624-637      13   +1.0  
+  25   7.700       -     655   644-664      20   +0.5  
+
+Worst residual 2.3 codes = 27 mV of VCAP.
+Largest within-point min-max spread 34 codes = 399 mV of VCAP.
+  (Policy decisions use one median-of-3 reading, so this spread, not the mean,
+   sets how sharply thresholds switch.)
+
+Build flags (anchors lie exactly on the fitted line):
+  BISEN_HARVEST_SUPPLY_PIN=17 BISEN_HARVEST_CAL_PIN=17 \
+  BISEN_HARVEST_CAL_LOW_CODE=476 BISEN_HARVEST_CAL_LOW_UV=5604455 \
+  BISEN_HARVEST_CAL_HIGH_CODE=655 BISEN_HARVEST_CAL_HIGH_UV=7705526

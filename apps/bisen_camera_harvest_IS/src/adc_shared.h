@@ -3,12 +3,33 @@
 
 #include <stdint.h>
 
+// Which pad feeds the supply (VCAP divider) ADC slot.
+// 17 = GPIO17/ADCSE2 (production default since 2026-10-05; scope-off tests
+//      read within about 0.4% of the DMM once the measured divider ratio is used).
+// 16 = J9.8/GPIO16/ADCSE3 (legacy input; not re-validated with the scope off).
+#ifndef BISEN_HARVEST_SUPPLY_PIN
+#define BISEN_HARVEST_SUPPLY_PIN 17
+#endif
+#if BISEN_HARVEST_SUPPLY_PIN == 17
+#define BISEN_HARVEST_SUPPLY_PIN_NAME "GPIO17/ADCSE2"
+#else
+#define BISEN_HARVEST_SUPPLY_PIN_NAME "J9.8/GPIO16/ADCSE3"
+#endif
+
+// Pad the CAL_* anchors were fitted on (fit_vcap_calibration.py prints it).
+// Full builds refuse anchors from a different pad, because anchors belong to
+// one pad and one wiring setup (the old 461/634 GPIO16 anchors are invalid).
+// 0 = not stated (only allowed in calibration builds).
+#ifndef BISEN_HARVEST_CAL_PIN
+#define BISEN_HARVEST_CAL_PIN 0
+#endif
+
 // adc_shared.h -- the single owner of Apollo4 ADC instance 0.
 //
 // WHY THIS FILE EXISTS
 // Apollo4 has ONE general-purpose ADC. Two pieces of code wanted to own it:
 // sensor.c (photodiode readout on SE4/pin 15) and the BISen energy path (supply
-// external trace input (GPIO16/ADCSE3). Both must share ADC0; a
+// external VCAP input (GPIO17/ADCSE2 by default; see BISEN_HARVEST_SUPPLY_PIN). Both must share ADC0; a
 // second am_hal_adc_initialize() owner would conflict with camera acquisition.
 //
 // The fix is the pattern from a working multi-sensor design: ONE owner, no
@@ -35,12 +56,12 @@ extern "C" {
 
 typedef enum {
     ADC_MODE_PIXEL = 0,   // slot 0 = SE4 photodiode, LPMODE0 (0 us scan start)
-    ADC_MODE_SUPPLY,      // slot 1 = external ADCSE3, LPMODE1 (53.7 us, lower power)
+    ADC_MODE_SUPPLY,      // slot 1 = external VCAP input (SE2/SE3), LPMODE1 (53.7 us, lower power)
     ADC_MODE_WATCH,       // slot 1 + window comparator, repeating scan
 } adc_mode_t;
 
 // Initialise the peripheral once. Configures the photodiode pad and both slot
-// templates, then enters ADC_MODE_PIXEL. Configures GPIO16/ADCSE3 once and
+// templates, then enters ADC_MODE_PIXEL. Configures the supply pad (GPIO17/SE2 or GPIO16/SE3) once and
 // allows the divider filter to settle. Call once, from sensor_init().
 void adc_shared_init(void);
 // Disable/power down ADC0 during long energy waits; the next read restores it.
@@ -74,7 +95,7 @@ uint32_t adc_shared_supply_cost_us(void);
 
 // Reconstruct the imposed voltage BEFORE the divider. Despite the inherited
 // function name, this is not a measurement of board VDD. Calibration is in
-// trace_input.h; adc_shared_read_supply() always returns physical ADCSE3 codes.
+// trace_input.h; adc_shared_read_supply() always returns physical supply-pad ADC codes.
 uint32_t adc_shared_supply_nominal_millivolts(uint32_t code);
 
 // ---------------------------------------------------------------------------

@@ -1,0 +1,68 @@
+{
+  "rule": "argmax train_acc over grid, ties -> smallest R; test evaluated once",
+  "n_train": 10000,
+  "grid": [
+    {
+      "act_range": 0.5,
+      "train_acc": 0.9897,
+      "float_train_acc": 0.9929
+    },
+    {
+      "act_range": 1.0,
+      "train_acc": 0.9925,
+      "float_train_acc": 0.9929
+    },
+    {
+      "act_range": 2.0,
+      "train_acc": 0.9927,
+      "float_train_acc": 0.9929
+    },
+    {
+      "act_range": 3.0,
+      "train_acc": 0.9926,
+      "float_train_acc": 0.9929
+    },
+    {
+      "act_range": 4.0,
+      "train_acc": 0.9928,
+      "float_train_acc": 0.9929,
+      "test_acc": 0.9893
+    },
+    {
+      "act_range": 6.0,
+      "train_acc": 0.9928,
+      "float_train_acc": 0.9929
+    },
+    {
+      "act_range": 8.0,
+      "train_acc": 0.9927,
+      "float_train_acc": 0.9929
+    },
+    {
+      "act_range": 12.0,
+      "train_acc": 0.9926,
+      "float_train_acc": 0.9929
+    },
+    {
+      "act_range": 16.0,
+      "train_acc": 0.9928,
+      "float_train_acc": 0.9929
+    },
+    {
+      "act_range": 24.0,
+      "train_acc": 0.8205,
+      "float_train_acc": 0.9929
+    },
+    {
+      "act_range": 32.0,
+      "train_acc": 0.8427,
+      "float_train_acc": 0.9929
+    }
+  ],
+  "selected": {
+    "act_range": 4.0,
+    "train_acc": 0.9928,
+    "float_train_acc": 0.9929,
+    "test_acc": 0.9893
+  }
+}

@@ -4,6 +4,55 @@ Append new entries at the top. Do not rewrite old entries except to correct a fa
 
 ---
 
+## 2026-10-07 — (Claude) GPIO17 pin capacitor A/B: 10 nF vs 100 nF
+
+**User bench:** diag image (`ADC_DIAG_COMPARE=1 ADC_DIAG_DEEP=1`, GPIO17), scope off, USB unplugged for captures, VCAP 6.20 V (KM100) for every press. 10 nF: 8 records (first attempt lost; second pasted from terminal). 100 nF: 7 records. Tee files were empty (SWO viewer output is block-buffered into a pipe and lost on Ctrl-C); use `script -q <file> make view ...` instead. **Pressing RESET erased the retained SRAM log**, contrary to the banner text "a reset is tolerated while VDD remains powered"; do not press RESET before a readout.
+
+**Result (pooled within-record SD, codes):** policy readings 5.70 → 4.47 (−22 %; production/switched 5.48 → 4.60), LP1-AVG16 8.02 → 5.59 (−30 %), LP1-AVG1 single conversions 34.1 → 23.8 (−30 %). Mean at 6.20 V 525.4 → 525.7 (sweep fit predicts 526.7), so the 476/655 anchors remain valid. Error counters zero; trims/CFG unchanged. A 10× capacitor giving only ~30 % suggests most remaining per-conversion noise is not reachable by pin filtering (rough two-component estimate ≈ 22 codes); further gains need firmware averaging (AVG128 ≈ 2 codes/reading) or debouncing. 100 nF is currently fitted; recommended to keep it. Data and summary: `apps/bisen_camera_harvest/traces/calibration/2026-10-07_pin_cap_ab/`. No 100 nF calibration spot-check at other voltages was taken.
+
+---
+
+## 2026-10-06 — (Claude) GPIO17 VCAP calibration sweep fitted; anchors applied to build helpers
+
+**User bench run:** GPIO17 calibration image (pin 17 default, compare off), scope fully disconnected, USB/J-Link unplugged for every BTN0 capture, KAIWEETS KM100 on VCAP. Down pass 7.7→5.6 V then up pass 5.6→7.7 V, 0.3 V steps. Accidental double presses gave 25 records for 16 setpoints; the 16-slot SRAM log is a ring, so the second readout held #10–#25 and #1–#9 come from the user's pasted first readout (the first tee file was overwritten; part 2 tee file empty). Double presses are unambiguous (pairs within 3 codes; neighbouring setpoints ~25 codes apart).
+
+**Fit (`fit_vcap_calibration.py`, 25 points):** code = −1.47 + 85.195·VCAP[V]; 11.7 mV of VCAP per code; RMS residual 1.0 code, worst 2.3 codes (27 mV); down/up difference ≤ 3 codes at every setpoint. Anchors: `BISEN_HARVEST_CAL_LOW_CODE=476 LOW_UV=5604455 HIGH_CODE=655 HIGH_UV=7705526`, `SUPPLY_PIN=CAL_PIN=17`. Policy thresholds map to codes ≈ 493 (5.8 V), 527 (6.2 V), 578 (6.8 V), 620 (7.3 V). Cross-check: the 2026-10-05 USB-connected 7.14 V point (mean 607.6) sits 0.8 code from the fit. For reference, the invalid 461/634 anchors would have fired the 6.2 V threshold at about 6.14 V true.
+
+**Caveats:** DMM readings are actual KM100 readings on the 20 V DC range (0.01 V resolution; values happened to land on the targets); absolute accuracy bounded by the KM100. Within-point min–max of the 32 policy readings is 13–34 codes, so individual median-of-3 decisions can deviate ~±0.1–0.2 V from the mean.
+
+**Files:** `apps/bisen_camera_harvest/traces/calibration/2026-10-06_gpio17_sweep/` (pasted down-pass log, up-pass tee file, empty part 2, `sweep_dmm.csv`, `fit_output.txt`). Applied the anchors and pin flags to `build_harvest_rf_replay.sh` (BASE renamed `..._gpio17_2026-10-06`), `flash_harvest_rf_replay.sh`, `docs/RUIC_R2A_PAIR_RUN.md` and the three app READMEs. No ARM build or hardware validation of the full firmware yet.
+
+---
+
+## 2026-10-05 — (Claude) GPIO17 promoted to production VCAP pad (firmware only)
+
+**User decision:** use GPIO17/ADCSE2 for the VCAP divider in production.
+
+**Changes (uncommitted, for user review):**
+- `apps/bisen_camera_harvest`, `apps/bisen_camera_harvest_IS`, `apps/bisen_camera_harvest_OS/bisen_camera_harvest_OS`: new `BISEN_HARVEST_SUPPLY_PIN` (default 17; 16 = legacy J9.8/GPIO16/ADCSE3) selects channel SE2/SE3 and pad funcsel in `adc_shared.c`. The original app still accepts the old `BISEN_HARVEST_DIAG_SUPPLY_PIN` name, but it is no longer calibration-only. New `BISEN_HARVEST_CAL_PIN` (default 0): full builds `#error` unless it equals the supply pad, so anchors fitted on one pad cannot be built into firmware reading the other. Banners/SWO strings print the selected pad (`BISEN_HARVEST_SUPPLY_PIN_NAME`). IS/OS calibration log version now includes the pad, like the original app.
+- `tools/fit_vcap_calibration.py`: pad-agnostic. Reads the pad from SWO (`supply_input=GPIO17`, banner), `--pin` override; DMM column `pin_v` (or `gpio17_v`/`gpio16_v`); refuses sweeps spanning < 1 V; default anchors 5.6/7.7 V; prints `BISEN_HARVEST_SUPPLY_PIN`/`BISEN_HARVEST_CAL_PIN` with the CAL flags.
+- `apps/bisen_camera_harvest/README.md`, `TASKS.md` updated.
+
+**Verification:** host `gcc/g++ -fsyntax-only` against AmbiqSuite R4.5.0 headers for `adc_shared.c`, `energy_source.cc` and `bisen_camera_harvest.cc` in all three apps, calibration and full modes (plus compare/deep diagnostics and the legacy pin-16 alias in the original app); the guards fire as intended (CAL_PIN unset, CAL_PIN ≠ pad, pad 18). The fit tool was tested on a synthetic 16-point GPIO17 sweep. **No ARM toolchain build, no flash, no hardware validation.**
+
+**Consequence:** `build_harvest_rf_replay.sh`, `flash_harvest_rf_replay.sh` and the R2A pair-run doc still pass the invalid 461/634 GPIO16 anchors without CAL_PIN, so they now fail at compile time until the GPIO17 sweep is fitted. This is intentional.
+
+**User bench reference (2026-10-05):** calibration image, GPIO17, DMM VCAP 7.14 V, FG-powered with USB-C connected: 8 × 32-sample means 606–609 (SD ≈ 0.9 code ≈ 10 mV VCAP); nominal-transfer 7.06 V, ≈ 7.16 V with the measured 40.56 divider ratio (+0.3 %). Not used for anchors (USB connected; single voltage).
+
+---
+
+## 2026-10-02 — (Claude) Informed energy-budget estimate for the weekly report
+
+**Deliverables:** `docs/figures/RUIC_energy_estimates_2026-10-02.png` (two-panel figure) and a private claude.ai report page with the math. Estimates only (label: informed estimate, not physical validation).
+
+**Method:** E = measured/modelled duration × assumed board power (7.8 / 10 / 15 mW active; 7.77 mW = datasheet Table 29 HP 21.3 µA/MHz × 192 MHz × 1.9 V, upper values add EVB/MRAM margin); sleep 0.34–0.70 mW; MP1584EN η 0.6–0.8. Durations from Data_tables (board, 192 MHz) and the 10/01 scope state-DAC capture.
+
+**Central results (board rail):** LeNet OS tile 8 ≈ 117 µJ, IS ≈ 149 µJ, TFLM+CMSIS-NN ≈ 148 µJ (equal-power assumption → OS ≈ 21 % lower). Checkpoint save ≈ 32 µJ typical (MRAM programming ≈ 21 µJ, ≈ 6.3 nJ/byte), ≈ 59 µJ worst; restore ≈ 9 µJ; boot model CRC ≈ 41 µJ; decoupling recharge 27–54 µJ. Reservoir 7.3→5.8 V = 98.2 mJ (≈ 69 mJ at board, η 0.7); a typical save is ≈ 0.19 % of the 6.2→5.8 V band.
+
+**Key finding (estimate, needs confirmation):** a VCAP policy read takes ≈ 3.96 ms (32-read bursts in the calibration build, LPMODE1 restart per AVG16 scan), ≈ 40 µJ. `run_bisen_job` calls `pp_sample()` every scheduler step and the scan quantum is one pixel, so ≈ 1,024 reads per frame → ≈ 41 mJ of ≈ 44 mJ per frame (≈ 93 %). LPMODE0 reads (≈ 0.45 ms, firmware cost model) or polling every 64 pixels would cut frame energy ≈ 5–13×. Confirm by counting ADC-state (code 1) intervals in a production replay capture before changing firmware. No code change made.
+
+---
+
 ## 2026-10-01 — (Claude) Probe-by-probe scope isolation, partial
 
 **User bench (GPIO17, 7.30 V):** with CH2 (state DAC) and CH3 (VCAP) connected and their ground clips moved to the FG/source-side ground (together with the FG return), ADC codes did not drop (no scope-induced bias). CH1 (board VDD) and CH4 (GPIO17 pad) not yet re-added. Working rule: scope ground clips go to the FG/source-side ground, not to the EVB sense ground. CH1/CH4 effect still to be determined.
@@ -701,3 +750,18 @@ V14 energy claims are unchanged. Next isolate ordered per-read behavior
 and correction trims as needed, then make controlled paired measurements
 at additional stable physical voltages. Do not infer calibrated threshold
 safety from these records.
+
+
+### 2026-10-06 — Claude: Capuchin port to Apollo4 (V8), user-assigned
+
+**Repository:** local `main` at `b2d650ceb` (worktree had unrelated uncommitted harvest-app and TASKS edits; untouched). Cloud builds used AmbiqAI neuralSPOT `308c4e631` (merge base; `extern/`, `make/`, `neuralspot/` unchanged) plus the OS package's engine sources. Toolchain there: arm-none-eabi-gcc 13.2.1 (bench uses 15.3.Rel1 — rebuild before flashing).
+
+**Added (uncommitted, for review):** `apps/bisen_capuchin/` (port, firmware, tools, MSP430 package, results) and `docs/RUIC_V8_Capuchin_Apollo4_Port.md`. No existing file outside the V8 entries of TASKS.md / PROJECT_STATE.md and this log was changed. The RUIC engine is compiled from `apps/bisen_camera_harvest_OS/bisen_camera_harvest_OS/src` unmodified.
+
+**Port:** upstream Capuchin `76b6eb223f1b…` (pristine copies + hashes in the app). Three tagged C changes (`[PORT P1]` DMA→CPU copy, `[PORT A1]` AveragePooling2D, `[PORT H1]` empty profiling hook), 7 hunks in `patches/`; `tools/verify_provenance.py` passes. LEA matrix multiply served by TI DSPLib generic C (kernel 1), CMSIS-DSP (kernel 2) or upstream CPU path (kernel 0). Encoder: upstream `encoder.py` loaded unmodified with a dispatch wrapper for class 6.
+
+**Model:** float model reconstructed from `lenet_weights.h` (SHA `f2d631c3…4a138f`); free hidden scale chosen on 10,000 MNIST training images in Capuchin's favour (R = 4; plateau R 1–16, collapse ≥ 24). `MODEL_ARRAY` SHA-256 `0b60b8057f71…cee7a36b`.
+
+**Validation (host/emulator only):** MNIST t10k (official IDX, MD5-checked, 2-px border; reproduces engine accuracy 9,892/10,000 vs Data_tables 9,891, 9 top-score ties): RUIC 98.92 %, Capuchin LEA path 98.93 %, CPU path 98.89 %, McNemar p = 1.0; 0 accumulator overflows/saturations/wraps. Ported C bit-exact with an independent NumPy model on all 10,000 (both paths). 14 ARM builds link warning-free; 7 images run in a Cortex-M4 (Unicorn/QEMU, DSP) emulator are bit-exact for Capuchin and RUIC on 100 vectors. Emulator instruction counts (not cycles): Capuchin 9.93–12.48 M vs RUIC 1.38 M. Independent review subagent found and I fixed: mode-1 32-bit cycle wrap, kernel-0 copy option ignored, upper-median/percentile indexing, over-broad `-fwrapv` (now `dsplib_sw.c` only), invalid B6 comparison against harvest-app DAC 5 (split into B6a/B6b), spin-not-idle mode-1 reference, overclaims of native equivalence.
+
+**Not done:** any board run, energy, X1 on MSP430, `main_xchk.c` CCS build, B6b RUIC-runtime arm, Keras-model regeneration. Nothing here is physical validation.

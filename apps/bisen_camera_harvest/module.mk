@@ -13,7 +13,7 @@ local_bin := $(BINDIR)/$(subdirectory)
 LINKER_FILE := ./apps/bisen_camera_harvest/bisen_camera_harvest_checkpoint.ld
 
 # FG -> diode -> physical VCAP bank -> MP1584EN -> Apollo board.
-# GPIO16 observes VCAP; GPIO15 remains the camera pixel ADC input.
+# GPIO17 observes VCAP (BISEN_HARVEST_SUPPLY_PIN); GPIO15 remains the camera pixel ADC input.
 BISEN_HARVEST_CALIBRATION_MODE ?= 1
 BISEN_CAMERA_ENABLE_MRAM ?= 0
 # Checkpoint-format identity. HVR1 remains the app default; dedicated
@@ -66,8 +66,13 @@ BISEN_TRACE_CALIBRATION_SAMPLES ?= 32
 # Calibration-only ADC investigation: odd BTN0 captures use the current
 # per-read mode switch; even captures hold supply mode for the whole burst.
 BISEN_HARVEST_ADC_DIAG_COMPARE ?= 0
-# Calibration-only: 16 = GPIO16/ADCSE3 (default), 17 = GPIO17/ADCSE2 test input.
-BISEN_HARVEST_DIAG_SUPPLY_PIN ?= 16
+# VCAP divider ADC input: 17 = GPIO17/ADCSE2 (default since 2026-10-05),
+# 16 = legacy J9.8/GPIO16/ADCSE3. The old BISEN_HARVEST_DIAG_SUPPLY_PIN
+# variable is still honoured if set.
+BISEN_HARVEST_SUPPLY_PIN ?= $(or $(BISEN_HARVEST_DIAG_SUPPLY_PIN),17)
+# Pad the CAL_* anchors were fitted on; full builds require it to equal
+# BISEN_HARVEST_SUPPLY_PIN (fit_vcap_calibration.py prints it). 0 = unset.
+BISEN_HARVEST_CAL_PIN ?= 0
 # Calibration-only: trims/registers plus full-precision, LPMODE0 and AVG1 passes.
 BISEN_HARVEST_ADC_DIAG_DEEP ?= 0
 
@@ -94,7 +99,8 @@ pp_defines += BISEN_CAMERA_SCAN_MAX_UNITS=$(BISEN_CAMERA_SCAN_MAX_UNITS)
 pp_defines += BISEN_TRACE_CALIBRATION_MODE=$(BISEN_HARVEST_CALIBRATION_MODE)
 pp_defines += BISEN_TRACE_CALIBRATION_SAMPLES=$(BISEN_TRACE_CALIBRATION_SAMPLES)
 pp_defines += BISEN_HARVEST_ADC_DIAG_COMPARE=$(BISEN_HARVEST_ADC_DIAG_COMPARE)
-pp_defines += BISEN_HARVEST_DIAG_SUPPLY_PIN=$(BISEN_HARVEST_DIAG_SUPPLY_PIN)
+pp_defines += BISEN_HARVEST_SUPPLY_PIN=$(BISEN_HARVEST_SUPPLY_PIN)
+pp_defines += BISEN_HARVEST_CAL_PIN=$(BISEN_HARVEST_CAL_PIN)
 pp_defines += BISEN_HARVEST_ADC_DIAG_DEEP=$(BISEN_HARVEST_ADC_DIAG_DEEP)
 pp_defines += CKPT_USE_MRAM=$(BISEN_CAMERA_ENABLE_MRAM) CKPT_MRAM_TRACE=1
 pp_defines += BISEN_HARVEST_DIVIDER_TOP_OHM=$(BISEN_HARVEST_DIVIDER_TOP_OHM)

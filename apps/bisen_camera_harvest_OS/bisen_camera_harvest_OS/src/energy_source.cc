@@ -30,6 +30,6 @@ void es_read(es_reading_t *out) {
 uint32_t es_read_cost_us(void) { return adc_shared_supply_cost_us(); }
 void es_set_load_uw(uint32_t microwatts) { (void)microwatts; }
 const char *es_source_name(void) {
-    return "PHYSICAL VCAP: J9.8/GPIO16/ADCSE3 ahead of MP1584EN";
+    return "PHYSICAL VCAP: " BISEN_HARVEST_SUPPLY_PIN_NAME " ahead of MP1584EN";
 }
 int es_write_fits(uint32_t write_us) { (void)write_us; return 1; }

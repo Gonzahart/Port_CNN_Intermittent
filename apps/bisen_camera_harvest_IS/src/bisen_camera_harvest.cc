@@ -302,7 +302,10 @@ void offline_print() {
 
 #if BISEN_TRACE_CALIBRATION_MODE
 constexpr uint32_t kVddCalLogMagic = 0x48564343u;  // "HVCC", separate from trace calibration
-constexpr uint32_t kVddCalLogVersion = 1u;
+// The supply pin is part of the layout identity so records captured on one
+// input can never be printed by an image built for the other.
+constexpr uint32_t kVddCalLogVersion =
+    1u | ((uint32_t)BISEN_HARVEST_SUPPLY_PIN << 8);
 constexpr uint32_t kVddCalLogCapacity = 16u;
 
 struct VddCalibrationRecord {
@@ -743,8 +746,9 @@ void report_captured_vdd_record(const VddCalibrationRecord &record) {
             (unsigned long)record.nominal_vdd_mv);
         am_util_stdio_printf(
             "BISen camera HARVEST calibration audit: ADC_mode_after=%u;"
-            " code_mean is the physical ADCSE3 code\n",
-            (unsigned)record.adc_mode_after);
+            " code_mean is the physical GPIO%u supply ADC code\n",
+            (unsigned)record.adc_mode_after,
+            (unsigned)BISEN_HARVEST_SUPPLY_PIN);
         pp_mark_sleep();
     }
 }
@@ -1097,9 +1101,10 @@ int main() {
         " AMAP4PEVB Rev. 1 / apollo4p_evb\n");
     am_util_stdio_printf(
         "BISen camera pins: pixel=J9.10/GPIO15/ADCSE4"
-        " VCAP=J9.8/GPIO16/ADCSE3 via %lu/%lu ohm divider"
+        " VCAP=%s via %lu/%lu ohm divider"
         " state_bus=J12.7/.9/.11 GPIO62,63,61"
         " BTN0=GPIO%u\n",
+        BISEN_HARVEST_SUPPLY_PIN_NAME,
         (unsigned long)BISEN_HARVEST_DIVIDER_TOP_OHM,
         (unsigned long)BISEN_HARVEST_DIVIDER_BOTTOM_OHM,
         (unsigned)AM_BSP_GPIO_BUTTON0);
@@ -1109,6 +1114,10 @@ int main() {
         "BISen camera HARVEST CALIBRATION MODE: workload=off MRAM=off"
         " policy_thresholds=unset samples=%u\n",
         (unsigned)BISEN_TRACE_CALIBRATION_SAMPLES);
+    am_util_stdio_printf(
+        "BISen camera HARVEST calibration input: %s (CAL_PIN=%u for the"
+        " anchors you fit from this log)\n",
+        BISEN_HARVEST_SUPPLY_PIN_NAME, (unsigned)BISEN_HARVEST_SUPPLY_PIN);
     run_vdd_calibration_diagnostic();
 #endif
 
@@ -1144,9 +1153,10 @@ int main() {
         "BISen camera scheduler: scan_step_max=%u pixel, CNN_band_budget=100/500/1000 units\n",
         (unsigned)BISEN_CAMERA_SCAN_MAX_UNITS);
     am_util_stdio_printf(
-        "BISen camera VCAP estimator: external ADCSE3, discard=1 AVG16"
+        "BISen camera VCAP estimator: %s, discard=1 AVG16"
         " median=3 AVG16"
         " read_cost~%u us; stop=work100 resume=work500\n",
+        BISEN_HARVEST_SUPPLY_PIN_NAME,
         (unsigned)adc_shared_supply_cost_us());
 #if BISEN_HARVEST_OFFLINE_VALIDATE
     am_util_stdio_printf(

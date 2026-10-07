@@ -103,11 +103,14 @@ conversions. This revised record layout invalidates older retained diagnostic
 logs on reflash; start with a fresh log. Its compile flag defaults to 0 and is
 rejected in full firmware.
 
-For a GPIO17/ADCSE2 path investigation, also set
-`BISEN_HARVEST_DIAG_SUPPLY_PIN=17` and physically connect the divider junction
-to GPIO17. This selection is calibration-only; the production path remains
-GPIO16/ADCSE3. Place CH4 and the DMM at the selected ADC pad. Do not apply a
-GPIO17 calibration to the production GPIO16 image.
+**Supply pad (2026-10-05):** the VCAP divider ADC input is now selected by
+`BISEN_HARVEST_SUPPLY_PIN`, default **17** (GPIO17/ADCSE2) in this app and in
+the IS/OS apps. `16` selects the legacy J9.8/GPIO16/ADCSE3 path; the old
+calibration-only name `BISEN_HARVEST_DIAG_SUPPLY_PIN` is still accepted here.
+Full builds also require `BISEN_HARVEST_CAL_PIN` equal to the supply pad, so
+anchors fitted on one pad (for example the invalid 461/634 GPIO16 anchors)
+cannot be built into firmware reading the other. `fit_vcap_calibration.py`
+reads the pad from the SWO banner and prints both flags.
 
 At one fixed FG setting, measure VCAP and GPIO16 with a DMM while J-Link is
 disconnected. Capture CH1 board VDD, CH2 state DAC, CH3 live MP1584EN input,
@@ -129,6 +132,7 @@ and deploy command, in microvolts:
 ```sh
 make -B deploy EXAMPLE=bisen_camera_harvest PLATFORM=apollo4p_evb AS_VERSION=R4.5.0 \
   BISEN_HARVEST_CALIBRATION_MODE=0 BISEN_CAMERA_ENABLE_MRAM=1 \
+  BISEN_HARVEST_SUPPLY_PIN=17 BISEN_HARVEST_CAL_PIN=17 \
   BISEN_HARVEST_CAL_LOW_CODE=<measured_code_1> \
   BISEN_HARVEST_CAL_LOW_UV=<measured_vcap_1_uV> \
   BISEN_HARVEST_CAL_HIGH_CODE=<measured_code_2> \
@@ -140,7 +144,7 @@ make -B deploy EXAMPLE=bisen_camera_harvest PLATFORM=apollo4p_evb AS_VERSION=R4.
 ```
 
 The full build fails compilation if calibration or physical policy thresholds
-are absent. The conversion path is: physical ADCSE3 code → calibrated VCAP
+are absent. The conversion path is: physical supply-pad ADC code → calibrated VCAP
 microvolts → virtual BISen code. Exact virtual boundaries remain 2185
 (critical), 2333 (100 units), 2441 (500 units/restore), and 2553 (1000
 units). These correspond to historical 1.90/2.00/2.10/2.20 V policy
@@ -178,8 +182,9 @@ cd /Users/ghart/Documents/Ambiq/neuralSPOT
 make -B EXAMPLE=bisen_camera_harvest PLATFORM=apollo4p_evb AS_VERSION=R4.5.0 \
   BISEN_HARVEST_CALIBRATION_MODE=0 BISEN_CAMERA_ENABLE_MRAM=0 \
   BISEN_CAMERA_AUTORUN=0 BISEN_HARVEST_OFFLINE_VALIDATE=1 \
-  BISEN_HARVEST_CAL_LOW_CODE=461 BISEN_HARVEST_CAL_LOW_UV=5500000 \
-  BISEN_HARVEST_CAL_HIGH_CODE=634 BISEN_HARVEST_CAL_HIGH_UV=7500000 \
+  BISEN_HARVEST_SUPPLY_PIN=17 BISEN_HARVEST_CAL_PIN=17 \
+  BISEN_HARVEST_CAL_LOW_CODE=476 BISEN_HARVEST_CAL_LOW_UV=5604455 \
+  BISEN_HARVEST_CAL_HIGH_CODE=655 BISEN_HARVEST_CAL_HIGH_UV=7705526 \
   BISEN_HARVEST_CRITICAL_UV=5800000 BISEN_HARVEST_WORK100_UV=6200000 \
   BISEN_HARVEST_WORK500_UV=6800000 BISEN_HARVEST_WORK1000_UV=7300000
 ```

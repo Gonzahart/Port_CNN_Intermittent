@@ -1,0 +1,108 @@
+--- a/capuchin-MCU/decoder/decoder.c
++++ b/capuchin-MCU/decoder/decoder.c
+@@ -154,6 +154,22 @@
+                 maxpooling_filters(output, input, numFilters, pool_numRows, pool_numCols);
+             }
+ 
++            /* [RUIC A1] layer class 6 - AveragePooling2D (not in upstream Capuchin).
++             * Same encoded fields and output-shape rule as class 3; only the reduction differs. */
++            else if (*array == AVERAGEPOOLING2D_LAYER){
++                uint16_t pool_numRows = *(array + 1);
++                uint16_t pool_numCols = *(array + 2);
++                stride_numRows = *(array + 3);
++                stride_numCols = *(array + 4);
++                padding = *(array + 5);
++                array += 6;
++
++                output->numRows = input->numRows / pool_numRows;
++                output->numCols = input->numCols / pool_numCols;
++
++                avgpooling_filters(output, input, numFilters, pool_numRows, pool_numCols);
++            }
++
+             /* layer class 4 - Conv2D Flatten */
+             else if (*array == FLATTEN_LAYER){
+                 array += 1;
+--- a/capuchin-MCU/decoder/decoder.h
++++ b/capuchin-MCU/decoder/decoder.h
+@@ -14,6 +14,7 @@
+ #define MAXPOOLING2D_LAYER 3
+ #define FLATTEN_LAYER 4
+ #define DROPOUT_LAYER 5
++#define AVERAGEPOOLING2D_LAYER 6   /* [RUIC A1] not in upstream Capuchin */
+ 
+ #define LINEAR_ACTIVATION 0
+ #define SIGMOID_ACTIVATION 1
+--- a/capuchin-MCU/layers/layers.c
++++ b/capuchin-MCU/layers/layers.c
+@@ -81,6 +81,58 @@
+     return result;
+ }
+ 
++/* [RUIC A1] ---------------------------------------------------------------
++ * AveragePooling2D. Upstream Capuchin (76b6eb2) supports only MaxPooling2D; the
++ * RUIC LeNet uses average pooling, and substituting max pooling would change
++ * the network. These two functions mirror maxpooling()/maxpooling_filters()
++ * line for line (same loop order, stride == pool size, 'valid' padding, the
++ * stride/padding fields are ignored exactly as maxpooling ignores them). The
++ * only change is the reduction: the pool window is summed in 32 bits and divided
++ * by the window size with C integer division (truncation toward zero). Inputs
++ * follow a ReLU in this model, so this equals floor(mean) in Q5.10. It runs as
++ * plain CPU code on both MSP430 and Apollo4 (no LEA/DSP use), as maxpooling does.
++ * ------------------------------------------------------------------------- */
++matrix *avgpooling(matrix* result, matrix *input, uint16_t pool_numRows, uint16_t pool_numCols){
++    uint16_t result_numRows = input->numRows / pool_numRows;
++    uint16_t result_numCols = input->numCols / pool_numCols;
++    uint16_t i, j, x, y, kx, ky, input_offset, result_offset;
++    int32_t sum;
++    int32_t count = (int32_t)pool_numRows * (int32_t)pool_numCols;
++    for (i = 0; i < result_numRows; i ++){
++        for (j = 0; j < result_numCols; j ++){
++            x = i * pool_numRows;
++            y = j * pool_numCols;
++            sum = 0;
++            for (kx = 0; kx < pool_numRows; kx ++){
++                for (ky = 0; ky < pool_numCols; ky ++){
++                    input_offset = (x + kx) * input->numCols + (y + ky);
++                    sum += input->data[input_offset];
++                }
++            }
++            result_offset = i * result_numCols + j;
++            result->data[result_offset] = (int16_t)(sum / count);
++        }
++    }
++    return result;
++}
++
++matrix *avgpooling_filters(matrix *result, matrix *input, uint16_t numFilters, uint16_t pool_numRows, uint16_t pool_numCols){
++    uint16_t i, filter_offset, result_offset, filter_length = input->numRows * input->numCols, result_length = result->numRows * result->numCols;
++    int16_t *filterData = input->data, *resultData = result->data;
++
++    for (i = numFilters; i > 0; i --){
++        filter_offset = (i - 1) * filter_length;
++        result_offset = (i - 1) * result_length;
++
++        input->data = filterData + filter_offset;
++        result->data = resultData + result_offset;
++
++        avgpooling(result, input, pool_numRows, pool_numCols);
++    }
++    return result;
++}
++/* [RUIC A1] end ------------------------------------------------------------ */
++
+ matrix *flatten(matrix* result, matrix *input, uint16_t num_filter){
+     /**
+      * Implementation of flatten layer for CNN
+--- a/capuchin-MCU/layers/layers.h
++++ b/capuchin-MCU/layers/layers.h
+@@ -16,6 +16,9 @@
+ matrix *flatten(matrix* result, matrix *input, uint16_t num_filter);
+ matrix *padding_same(matrix *result, matrix *input, matrix *filter, uint16_t stride_numRows, uint16_t stride_numCols);
+ matrix *maxpooling_filters(matrix *result, matrix *input, uint16_t numFilters, uint16_t pool_numRows, uint16_t pool_numCols);
++/* [RUIC A1] AveragePooling2D -- not in upstream Capuchin (76b6eb2); added for the RUIC LeNet. */
++matrix *avgpooling(matrix* result, matrix *input, uint16_t pool_numRows, uint16_t pool_numCols);
++matrix *avgpooling_filters(matrix *result, matrix *input, uint16_t numFilters, uint16_t pool_numRows, uint16_t pool_numCols);
+ matrix *filters_sum(matrix *result, matrix *input, matrix *filter, uint16_t numChannels, int16_t b, int16_t (*activation)(int16_t, uint16_t), uint16_t precision, uint16_t stride_numRows, uint16_t stride_numCols, uint16_t padding, uint16_t conv_numRows, uint16_t conv_numCols);
+ matrix *conv2d(matrix *result, matrix *input, matrix *filter, uint16_t numFilters, uint16_t numChannels, int16_t *b, int16_t (*activation)(int16_t, uint16_t), uint16_t precision, uint16_t stride_numRows, uint16_t stride_numCols, uint16_t padding);
+ matrix *apply_leakyrelu(matrix *result, matrix *input, uint16_t precision);

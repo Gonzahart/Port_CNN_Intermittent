@@ -10,7 +10,7 @@
 // The direct threshold table and pre-sleep checkpoint condition come from the
 // validated port. This file only:
 //
-//   * supplies a VCAP reading from AMAP4PEVB J9.8/GPIO16/ADCSE3
+//   * supplies a VCAP reading from the VCAP divider on BISEN_HARVEST_SUPPLY_PIN (GPIO17/ADCSE2 default)
 //   * hands their policy our "is there dirty work" answer, from workload.h
 //   * caches the decision so the hot loops can ask about it for free
 //

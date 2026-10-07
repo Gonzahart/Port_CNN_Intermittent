@@ -5,7 +5,7 @@ SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 NS_ROOT=${NEURALSPOT_ROOT:-$SCRIPT_DIR}
 OUT_ROOT=${FIRMWARE_OUT_ROOT:-$NS_ROOT/firmware_builds}
 BUILD_DIR="$NS_ROOT/build/apollo4p_evb/arm-none-eabi/apps/bisen_camera_harvest"
-BASE=bisen_camera_harvest_rf_replay_btn_control_2026-09-22
+BASE=bisen_camera_harvest_rf_replay_btn_control_gpio17_2026-10-06
 
 cd "$NS_ROOT"
 
@@ -23,10 +23,12 @@ make -B \
   BISEN_ENABLE_STATE_DAC=1 \
   BISEN_CAMERA_MAX_CHECKPOINTS=0 \
   BISEN_CAMERA_MAX_WAIT_CYCLES=0 \
-  BISEN_HARVEST_CAL_LOW_CODE=461 \
-  BISEN_HARVEST_CAL_LOW_UV=5500000 \
-  BISEN_HARVEST_CAL_HIGH_CODE=634 \
-  BISEN_HARVEST_CAL_HIGH_UV=7500000 \
+  BISEN_HARVEST_SUPPLY_PIN=17 \
+  BISEN_HARVEST_CAL_PIN=17 \
+  BISEN_HARVEST_CAL_LOW_CODE=476 \
+  BISEN_HARVEST_CAL_LOW_UV=5604455 \
+  BISEN_HARVEST_CAL_HIGH_CODE=655 \
+  BISEN_HARVEST_CAL_HIGH_UV=7705526 \
   BISEN_HARVEST_CRITICAL_UV=5800000 \
   BISEN_HARVEST_WORK100_UV=6200000 \
   BISEN_HARVEST_WORK500_UV=6800000 \
@@ -55,7 +57,8 @@ swo_logging=0
 state_dac=1
 max_checkpoints=0
 max_wait_cycles=0
-calibration_codes=461@5500000uV,634@7500000uV
+supply_pin=GPIO17/ADCSE2 cal_pin=17
+calibration_codes=476@5604455uV,655@7705526uV (GPIO17 sweep 2026-10-06, 25 points, scope disconnected)
 thresholds_uV=critical:5800000,work100:6200000,work500_resume:6800000,work1000:7300000
 EOF
 

@@ -15,7 +15,7 @@
 #include "am_util.h"
 
 #if ES_SOURCE != ES_SOURCE_HARVEST
-#error "bisen_camera_harvest requires physical VCAP on ADCSE3"
+#error "bisen_camera_harvest requires the physical VCAP input"
 #endif
 
 // Pixel readout: photodiode on GPIO15, hard-wired to ADC channel SE4.
@@ -23,23 +23,22 @@
 #define PIXEL_CHANNEL  AM_HAL_ADC_SLOT_CHSEL_SE4
 #define PIXEL_SLOT     0
 
-// Physical reservoir input: J9.8/GPIO16/ADCSE3, via configured divider.
-// BISEN_HARVEST_DIAG_SUPPLY_PIN=17 moves the supply slot to GPIO17/ADCSE2 in
-// calibration builds only, to isolate a suspected GPIO16/SE3 input fault.
-// GPIO16 is then left in its reset configuration.
-#if BISEN_HARVEST_DIAG_SUPPLY_PIN == 16
+// Physical reservoir input via the configured divider.
+// BISEN_HARVEST_SUPPLY_PIN=17 (default): GPIO17/ADCSE2; GPIO16 left in reset.
+// BISEN_HARVEST_SUPPLY_PIN=16: legacy J9.8/GPIO16/ADCSE3.
+#if BISEN_HARVEST_SUPPLY_PIN == 16
 #define SUPPLY_PIN      16
 #define SUPPLY_CHANNEL  AM_HAL_ADC_SLOT_CHSEL_SE3
 #define SUPPLY_FUNCSEL  AM_HAL_PIN_16_ADCSE3
-#elif BISEN_HARVEST_DIAG_SUPPLY_PIN == 17
-#if !BISEN_TRACE_CALIBRATION_MODE
-#error "BISEN_HARVEST_DIAG_SUPPLY_PIN=17 is a calibration-only diagnostic"
-#endif
+#elif BISEN_HARVEST_SUPPLY_PIN == 17
 #define SUPPLY_PIN      17
 #define SUPPLY_CHANNEL  AM_HAL_ADC_SLOT_CHSEL_SE2
 #define SUPPLY_FUNCSEL  AM_HAL_PIN_17_ADCSE2
 #else
-#error "BISEN_HARVEST_DIAG_SUPPLY_PIN must be 16 (GPIO16/SE3) or 17 (GPIO17/SE2)"
+#error "BISEN_HARVEST_SUPPLY_PIN must be 16 (GPIO16/SE3) or 17 (GPIO17/SE2)"
+#endif
+#if !BISEN_TRACE_CALIBRATION_MODE && BISEN_HARVEST_CAL_PIN != SUPPLY_PIN
+#error "VCAP anchors were not fitted on the selected supply pin: refit with fit_vcap_calibration.py and pass its BISEN_HARVEST_CAL_PIN"
 #endif
 #define SUPPLY_SLOT     1
 
@@ -64,7 +63,7 @@ static int s_deep_full = 0;    // 1 = return the full 12.6 sample
 #endif
 
 // Runtime supply decisions switch ADC0 between the camera's SE4 input and the
-// external ADCSE3 trace input. The hardware AVG16 result removes ordinary conversion
+// external VCAP supply input. The hardware AVG16 result removes ordinary conversion
 // noise; a median of three accepted AVG16 results rejects one isolated
 // post-switch outlier without adding policy hysteresis.
 #define SUPPLY_DECISION_SAMPLES  3u

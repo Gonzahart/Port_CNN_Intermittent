@@ -1,0 +1,85 @@
+==== neuralspot_config.mk ===
+TOOLCHAIN:      arm-none-eabi
+COMPILERNAME:   gcc
+PLATFORM:       apollo4p_evb.
+BOARD:          apollo4p.
+BOARDROOT:      apollo4p.
+PART:           apollo4p.
+EVB:            evb.
+ARCH:           apollo4.
+CPU:            cortex-m4.
+TARGET:         basic_tf_stub.
+EXAMPLE:        bisen_camera_harvest.
+FPU_FLAG:       -mfpu=fpv4-sp-d16.
+BINDIR:         build/apollo4p_evb/arm-none-eabi.
+NESTDIR:        nest.
+BINDIRROOT:     build.
+BLE_SUPPORTED:  
+USB_PRESENT:    1
+TF_VERSION:     helia_rt_v1_6_0
+AS_VERSION:     R4.5.0
+--------------------------------
+BL: 
+ Printing SWO output (ensure JLink USB connected and powered on)...
+************************************************************ 
+*               SEGGER Microcontroller GmbH                * 
+*   Solutions for real time microcontroller applications   * 
+************************************************************ 
+*                                                          * 
+*      (c) 2012 - 2018  SEGGER Microcontroller GmbH        * 
+*                                                          * 
+*     www.segger.com     Support: support@segger.com       * 
+*                                                          * 
+************************************************************ 
+*                                                          * 
+* SEGGER J-Link SWO Viewer   Compiled Aug  5 2026 12:23:31 * 
+*                                                          * 
+************************************************************ 
+
+------------------------------------------------------------ 
+Usage:                                                       
+  In the configuration dialog enter the target device name.  
+  SWO Viewer can show data from stimulus ports 1 to 16.      
+  0 - 9 and a - f keys toggle display of stimulus port data. 
+  Ctrl-C and any other key closes SWO Viewer                 
+------------------------------------------------------------ 
+
+
+Target CPU (AMAP42KK-KBR) is running @ 96105 kHz.
+Receiving SWO data @ 1000 kHz.
+Showing data from stimulus port(s): 0
+-----------------------------------------------
+BISen camera HARVEST SRAM log: records=16 capacity=16 volatile_only=1 MRAM_writes=0 supply_input=GPIO17
+BISen camera HARVEST retained point #10: samples=32 valid=32 code_mean=526 code_min=519 code_max=535 VCAP_nominal_mV=6112 mV ADC_mode_after=0
+BISen camera HARVEST retained point #11: samples=32 valid=32 code_mean=526 code_min=515 code_max=535 VCAP_nominal_mV=6112 mV ADC_mode_after=0
+BISen camera HARVEST retained point #12: samples=32 valid=32 code_mean=501 code_min=485 code_max=519 VCAP_nominal_mV=5822 mV ADC_mode_after=0
+BISen camera HARVEST retained point #13: samples=32 valid=32 code_mean=475 code_min=468 code_max=485 VCAP_nominal_mV=5520 mV ADC_mode_after=0
+BISen camera HARVEST retained point #14: samples=32 valid=32 code_mean=477 code_min=468 code_max=481 VCAP_nominal_mV=5543 mV ADC_mode_after=0
+BISen camera HARVEST retained point #15: samples=32 valid=32 code_mean=502 code_min=495 code_max=512 VCAP_nominal_mV=5833 mV ADC_mode_after=0
+BISen camera HARVEST retained point #16: samples=32 valid=32 code_mean=501 code_min=491 code_max=505 VCAP_nominal_mV=5822 mV ADC_mode_after=0
+BISen camera HARVEST retained point #17: samples=32 valid=32 code_mean=529 code_min=522 code_max=535 VCAP_nominal_mV=6147 mV ADC_mode_after=0
+BISen camera HARVEST retained point #18: samples=32 valid=32 code_mean=550 code_min=542 code_max=559 VCAP_nominal_mV=6391 mV ADC_mode_after=0
+BISen camera HARVEST retained point #19: samples=32 valid=32 code_mean=552 code_min=542 code_max=559 VCAP_nominal_mV=6414 mV ADC_mode_after=0
+BISen camera HARVEST retained point #20: samples=32 valid=32 code_mean=577 code_min=566 code_max=590 VCAP_nominal_mV=6705 mV ADC_mode_after=0
+BISen camera HARVEST retained point #21: samples=32 valid=32 code_mean=605 code_min=590 code_max=613 VCAP_nominal_mV=7030 mV ADC_mode_after=0
+BISen camera HARVEST retained point #22: samples=32 valid=32 code_mean=602 code_min=593 code_max=610 VCAP_nominal_mV=6995 mV ADC_mode_after=0
+BISen camera HARVEST retained point #23: samples=32 valid=32 code_mean=629 code_min=620 code_max=644 VCAP_nominal_mV=7309 mV ADC_mode_after=0
+BISen camera HARVEST retained point #24: samples=32 valid=32 code_mean=630 code_min=624 code_max=637 VCAP_nominal_mV=7321 mV ADC_mode_after=0
+BISen camera HARVEST retained point #25: samples=32 valid=32 code_mean=655 code_min=644 code_max=664 VCAP_nominal_mV=7611 mV ADC_mode_after=0
+BISen camera HARVEST SRAM log: records=16 capacity=16 volatile_only=1 MRAM_writes=0 supply_input=GPIO17
+BISen camera HARVEST retained point #10: samples=32 valid=32 code_mean=526 code_min=519 code_max=535 VCAP_nominal_mV=6112 mV ADC_mode_after=0
+BISen camera HARVEST retained point #11: samples=32 valid=32 code_mean=526 code_min=515 code_max=535 VCAP_nominal_mV=6112 mV ADC_mode_after=0
+BISen camera HARVEST retained point #12: samples=32 valid=32 code_mean=501 code_min=485 code_max=519 VCAP_nominal_mV=5822 mV ADC_mode_after=0
+BISen camera HARVEST retained point #13: samples=32 valid=32 code_mean=475 code_min=468 code_max=485 VCAP_nominal_mV=5520 mV ADC_mode_after=0
+BISen camera HARVEST retained point #14: samples=32 valid=32 code_mean=477 code_min=468 code_max=481 VCAP_nominal_mV=5543 mV ADC_mode_after=0
+BISen camera HARVEST retained point #15: samples=32 valid=32 code_mean=502 code_min=495 code_max=512 VCAP_nominal_mV=5833 mV ADC_mode_after=0
+BISen camera HARVEST retained point #16: samples=32 valid=32 code_mean=501 code_min=491 code_max=505 VCAP_nominal_mV=5822 mV ADC_mode_after=0
+BISen camera HARVEST retained point #17: samples=32 valid=32 code_mean=529 code_min=522 code_max=535 VCAP_nominal_mV=6147 mV ADC_mode_after=0
+BISen camera HARVEST retained point #18: samples=32 valid=32 code_mean=550 code_min=542 code_max=559 VCAP_nominal_mV=6391 mV ADC_mode_after=0
+BISen camera HARVEST retained point #19: samples=32 valid=32 code_mean=552 code_min=542 code_max=559 VCAP_nominal_mV=6414 mV ADC_mode_after=0
+BISen camera HARVEST retained point #20: samples=32 valid=32 code_mean=577 code_min=566 code_max=590 VCAP_nominal_mV=6705 mV ADC_mode_after=0
+BISen camera HARVEST retained point #21: samples=32 valid=32 code_mean=605 code_min=590 code_max=613 VCAP_nominal_mV=7030 mV ADC_mode_after=0
+BISen camera HARVEST retained point #22: samples=32 valid=32 code_mean=602 code_min=593 code_max=610 VCAP_nominal_mV=6995 mV ADC_mode_after=0
+BISen camera HARVEST retained point #23: samples=32 valid=32 code_mean=629 code_min=620 code_max=644 VCAP_nominal_mV=7309 mV ADC_mode_after=0
+BISen camera HARVEST retained point #24: samples=32 valid=32 code_mean=630 code_min=624 code_max=637 VCAP_nominal_mV=7321 mV ADC_mode_after=0
+BISen camera HARVEST retained point #25: samples=32 valid=32 code_mean=655 code_min=644 code_max=664 VCAP_nominal_mV=7611 mV ADC_mode_after=0

@@ -1,0 +1,17 @@
+{
+  "capuchin_upstream": "https://github.com/leleonardzhang/Capuchin@76b6eb223f1b6da27520064a8f52b9df6fa4cab5",
+  "encoder_sha256": "d831518239e58dbaaaad425c419845be38814642b2a5fe1f569233cee2adf7bc",
+  "avgpool_extension_code": 6,
+  "weight_source": "ruic_int8_header_reconstruction",
+  "ruic_header": "lenet_weights.h",
+  "ruic_header_sha256": "f2d631c33d698a6639559788bc19f3a98cbadce77604096004e5fe554c4a138f",
+  "act_range": [
+    4.0
+  ],
+  "logit_mult": 1.0,
+  "model_array_length": 61758,
+  "model_array_sha256": "0b60b8057f7129da8efad5c77b55cd0f803add2ed44ce44e1e116a12cee7a36b",
+  "msp430_header_sha256": "bfb873d17f2a6539f10fccb433e308c49bc0023af547cd9379243e418263db2c",
+  "apollo4_header_sha256": "f2e6abe3428936d50292d6527b3f6b5af7b781f1b66d23da12ce48b4fccac6a9",
+  "weights_saturated_q10": 0
+}
