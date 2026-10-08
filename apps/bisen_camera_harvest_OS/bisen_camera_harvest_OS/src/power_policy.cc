@@ -11,6 +11,7 @@
 #include "energy_source.h"
 #include "adc_shared.h"
 #include "harvest_stats.h"
+#include "vcap_confirm.h"
 #include "workload.h"
 
 // What the machine draws, from power.c's datasheet figures at 1.9 V. Only the
@@ -47,6 +48,30 @@ bool     s_failed_latched;
 bool     s_high_retry_exhausted;
 uint32_t s_high_samples_ignored;
 uint32_t s_high_retry_exhaustions;
+
+// Confirmed view of the raw decision (vcap_confirm.h). The raw s_decision is
+// still kept for chunk band selection and logging.
+vcap_confirm_t s_confirm = {BISEN_HARVEST_STOP_CONFIRM,
+                            BISEN_HARVEST_RESUME_CONFIRM, 0u, 0u, 0u,
+                            0u, 0u, 0u};
+// Set by pp_leave_wait(): the next reading is a wait-loop poll. Rejections
+// are counted against the state the scheduler is actually in -- a resume
+// vote while working, or a stop vote while waiting, gates nothing.
+bool     s_sample_after_wait;
+uint32_t s_job_samples;
+uint32_t s_job_stop_rejected;
+uint32_t s_job_resume_rejected;
+uint32_t s_job_critical_bypasses;
+
+void note_valid_reading(bool wait_poll) {
+    const uint32_t ev = vcap_confirm_update(
+        &s_confirm, s_decision.compute_allowed ? 1 : 0,
+        s_decision.restore_allowed ? 1 : 0,
+        s_decision.below_sleep_floor ? 1 : 0);
+    if ((ev & VC_EV_STOP_VOTE) && !wait_poll) ++s_job_stop_rejected;
+    if ((ev & VC_EV_RESUME_VOTE) && wait_poll) ++s_job_resume_rejected;
+    if (ev & VC_EV_CRITICAL) ++s_job_critical_bypasses;
+}
 
 
 const char *band_name(bisen::EnergyBand b) {
@@ -188,9 +213,25 @@ extern "C" void pp_mark_restore(void) {
     bus_check(6);
 }
 
+static void pp_sample_raw(void);
+
 extern "C" void pp_sample(void) {
     pp_mark_adc();
+    ++s_job_samples;
+    const bool wait_poll = s_sample_after_wait;
+    s_sample_after_wait = false;
+    pp_sample_raw();
+    if (s_valid) {
+        note_valid_reading(wait_poll);
+    } else {
+        // Not a vote either way; any partial confirmation run starts again.
+        // The queries below still answer "not allowed" (s_valid gate).
+        vcap_confirm_invalid(&s_confirm);
+    }
+}
 
+// One reading through bisen_policy.cc, exactly as before confirmation existed.
+static void pp_sample_raw(void) {
     es_reading_t r = {};
     for (uint32_t attempt = 0u;
          attempt < BISEN_CAMERA_VCAP_HIGH_SAMPLE_RETRIES; ++attempt) {
@@ -263,7 +304,7 @@ extern "C" int pp_should_checkpoint(void) {
     // saying the same thing twice.
     const bisen::PreSleepCheckpointAction action =
         bisen::choose_pre_sleep_checkpoint_action(
-            s_decision.compute_allowed, wl_dirty() != 0, false,
+            s_confirm.compute != 0u, wl_dirty() != 0, false,
             s_failed_latched);
     // main.c has one decision: when the next useful state is unaffordable and
     // progress changed, checkpoint before sleeping. There is no second
@@ -271,13 +312,25 @@ extern "C" int pp_should_checkpoint(void) {
     return action == bisen::PreSleepCheckpointAction::kWrite;
 }
 
+// Band selection stays on the raw reading (100/500/1000). While a stop is
+// pending the raw band is "wait" (0); work continues on the smallest budget.
 extern "C" uint32_t pp_chunk_units(void) {
-    return s_valid ? s_decision.chunk_pixels : 0u;
+    if (!s_valid) return 0u;
+    if (vcap_confirm_stop_pending(&s_confirm)) {
+        return bisen::kBenchEnergyPolicy.chunk_100_pixels;
+    }
+    return s_decision.chunk_pixels;
 }
 
 extern "C" int pp_compute_allowed(void) {
-    return s_valid && s_decision.compute_allowed;
+    return s_valid && s_confirm.compute;
 }
+
+extern "C" int pp_stop_pending(void) {
+    return vcap_confirm_stop_pending(&s_confirm);
+}
+
+extern "C" void pp_confirm_forget(void) { vcap_confirm_forget(&s_confirm); }
 
 // Invert the active board conversion so the ADC window comparator and software
 // policy use exactly the same voltage-to-code mapping.
@@ -392,10 +445,11 @@ extern "C" void pp_enter_wait(void) {
 extern "C" void pp_leave_wait(void) {
     es_set_load_uw(PP_ACTIVE_UW);
     pp_mark_compute();
+    s_sample_after_wait = true;
 }
 
 extern "C" int pp_restore_allowed(void) {
-    return s_valid && s_decision.restore_allowed;
+    return s_valid && s_confirm.restore;
 }
 
 extern "C" void pp_note_checkpoint_failed(void) { s_failed_latched = true; }
@@ -421,6 +475,22 @@ extern "C" uint32_t pp_high_retry_exhaustions(void) {
     return s_high_retry_exhaustions;
 }
 
+extern "C" void pp_job_stats_reset(void) {
+    s_sample_after_wait = false;
+    s_job_samples = 0u;
+    s_job_stop_rejected = 0u;
+    s_job_resume_rejected = 0u;
+    s_job_critical_bypasses = 0u;
+}
+extern "C" uint32_t pp_job_vcap_samples(void) { return s_job_samples; }
+extern "C" uint32_t pp_job_stop_rejected(void) { return s_job_stop_rejected; }
+extern "C" uint32_t pp_job_resume_rejected(void) {
+    return s_job_resume_rejected;
+}
+extern "C" uint32_t pp_job_critical_bypasses(void) {
+    return s_job_critical_bypasses;
+}
+
 extern "C" void pp_report(void) {
     if (!s_valid) {
         am_util_stdio_printf("POLICY: no valid supply reading\n");
@@ -430,11 +500,14 @@ extern "C" void pp_report(void) {
     wl_state(&st);
     am_util_stdio_printf(
         "POLICY: code=%u nominal_supply=%u mV [%s] band=%s chunk=%u restore=%u compute=%u"
+        " confirmed_restore=%u confirmed_compute=%u stop_pending=%u"
         " checkpoint_now=%u | workload=%s dirty=%u %u B ~%u us\n",
         (unsigned)s_raw_code, (unsigned)s_vcap_mv, es_source_name(),
         pp_band_name(), (unsigned)s_decision.chunk_pixels,
         s_decision.restore_allowed ? 1u : 0u,
         s_decision.compute_allowed ? 1u : 0u,
+        (unsigned)s_confirm.restore, (unsigned)s_confirm.compute,
+        pp_stop_pending() ? 1u : 0u,
         pp_should_checkpoint() ? 1u : 0u,
         wl_phase_name(st.phase), (unsigned)st.dirty,
         (unsigned)st.payload_bytes, (unsigned)st.write_us);

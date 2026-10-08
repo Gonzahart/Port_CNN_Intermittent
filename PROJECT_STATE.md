@@ -98,6 +98,8 @@ Virtual boundaries are 2185 / 2333 / 2441 / 2553. They are policy coordinates, n
 
 These thresholds describe the configured functional baseline; final energy-safe limits require bench characterization.
 
+**CURRENT (source, 2026-10-07, uncommitted):** all three harvest apps have opt-in VCAP read-policy flags `BISEN_HARVEST_STOP_CONFIRM`, `BISEN_HARVEST_RESUME_CONFIRM` (consecutive-reading confirmation of stop/resume; critical 5.8 V bypasses) and `BISEN_HARVEST_VCAP_SAMPLE_EVERY_STEPS` (scan-phase reading interval; CNN still one reading per chunk). Defaults 1/1/1 keep the behaviour above. Candidate replay helpers `build_/flash_harvest_rf_replay_vcap_policy.sh` select 3/3/32 with identity HVR4. Built and host-tested only; the 2026-10-07 threshold results (stop 6.29–6.38 V, resume 6.645–6.775 V) describe the baseline image, not the candidate.
+
 ## 5. Current persistence, session control, and state DAC
 
 **CURRENT — source verified**

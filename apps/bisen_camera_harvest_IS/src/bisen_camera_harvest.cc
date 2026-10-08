@@ -849,6 +849,17 @@ void emit_result() {
         (unsigned long)pp_high_samples_ignored(),
         (unsigned long)pp_high_retry_exhaustions(),
         (unsigned)BISEN_CAMERA_VCAP_IGNORE_AT_MV);
+    am_util_stdio_printf(
+        "BISen camera VCAP read policy: frame_samples=%lu stop_rejected=%lu"
+        " resume_rejected=%lu critical_bypasses=%lu stop_confirm=%u"
+        " resume_confirm=%u sample_every_steps=%u\n",
+        (unsigned long)pp_job_vcap_samples(),
+        (unsigned long)pp_job_stop_rejected(),
+        (unsigned long)pp_job_resume_rejected(),
+        (unsigned long)pp_job_critical_bypasses(),
+        (unsigned)BISEN_HARVEST_STOP_CONFIRM,
+        (unsigned)BISEN_HARVEST_RESUME_CONFIRM,
+        (unsigned)BISEN_HARVEST_VCAP_SAMPLE_EVERY_STEPS);
 #endif
 #endif
 }
@@ -889,16 +900,44 @@ bool wait_for_energy(bool restore_threshold_required) {
     return false;
 }
 
+bool stop_button_pending() {
+#if BISEN_HARVEST_AUTOCONTINUOUS
+    return g_button1_pressed != 0 || g_user_stop_requested;
+#else
+    return false;
+#endif
+}
+
 bool run_bisen_job(bool restored_from_storage) {
     bool require_restore_threshold = restored_from_storage;
     bool camera_seen = false;
     bool reported_initial_energy = false;
     uint32_t scheduler_steps = 0u;
+    // VCAP sampling cadence; see BISEN_HARVEST_VCAP_SAMPLE_EVERY_STEPS in
+    // power_policy.h. With the default of 1 every step is sampled, as before.
+    bool force_sample = true;  // first step of the job
+    uint32_t steps_since_sample = 0u;
+    wl_phase_t sampled_phase = wl_current_phase();
     pp_high_sample_filter_reset();
+    pp_job_stats_reset();
     pwr_frame_start();
 
     for (;;) {
-        pp_sample();
+        const wl_phase_t phase_now = wl_current_phase();
+        // K only spaces readings inside the camera scan, whose steps are
+        // single pixels. Every CNN chunk keeps its own reading, and the
+        // scan -> CNN transition step (preprocess + nn_begin) is sampled.
+        bool sampled = false;
+        if (force_sample || phase_now != WL_PHASE_SCAN || scan_complete() ||
+            phase_now != sampled_phase ||
+            steps_since_sample >= BISEN_HARVEST_VCAP_SAMPLE_EVERY_STEPS ||
+            pp_stop_pending() || stop_button_pending()) {
+            pp_sample();
+            sampled = true;
+            force_sample = false;
+            steps_since_sample = 0u;
+            sampled_phase = phase_now;
+        }
 #if BISEN_HARVEST_AUTOCONTINUOUS
         (void)consume_stop_button();
         if (g_user_stop_requested) {
@@ -914,9 +953,16 @@ bool run_bisen_job(bool restored_from_storage) {
                 (unsigned long)pp_vcap_mv(), pp_band_name());
             reported_initial_energy = true;
         }
-        const bool energy_allows_work =
+        bool energy_allows_work =
             pp_compute_allowed() &&
             (!require_restore_threshold || pp_restore_allowed());
+        if (!energy_allows_work && !sampled) {
+            // The checkpoint decision below always follows a fresh reading.
+            pp_sample();
+            energy_allows_work =
+                pp_compute_allowed() &&
+                (!require_restore_threshold || pp_restore_allowed());
+        }
 
         if (!energy_allows_work) {
             const bool crossed_from_work = g_checkpoint_edge_armed;
@@ -960,6 +1006,7 @@ bool run_bisen_job(bool restored_from_storage) {
             }
             require_restore_threshold = false;
             wl_resume();
+            force_sample = true;  // first step after a wait is always sampled
             continue;
         }
 
@@ -995,6 +1042,7 @@ bool run_bisen_job(bool restored_from_storage) {
 
         const wl_step_result_t result = wl_step(chunk);
         scheduler_steps++;
+        steps_since_sample++;
         if (result == WL_STEP_COMPLETE) {
             emit_result();
             // The result payload is not persisted. If this job ever created or
@@ -1026,6 +1074,9 @@ void park_until_continuous_request() {
     pp_mark_sleep();
     led_select(-1);
     adc_shared_park();
+    // The next session starts from a fresh energy reading, not a confirmed
+    // state that may be minutes old.
+    pp_confirm_forget();
 #if BISEN_HARVEST_OFFLINE_VALIDATE
     am_util_stdio_printf(
         "BISen camera offline validation parked; BTN0 runs one job;"
@@ -1158,6 +1209,13 @@ int main() {
         " read_cost~%u us; stop=work100 resume=work500\n",
         BISEN_HARVEST_SUPPLY_PIN_NAME,
         (unsigned)adc_shared_supply_cost_us());
+    am_util_stdio_printf(
+        "BISen camera VCAP read policy: stop_confirm=%u resume_confirm=%u"
+        " readings; scan sample_every_steps=%u; critical bypasses"
+        " confirmation\n",
+        (unsigned)BISEN_HARVEST_STOP_CONFIRM,
+        (unsigned)BISEN_HARVEST_RESUME_CONFIRM,
+        (unsigned)BISEN_HARVEST_VCAP_SAMPLE_EVERY_STEPS);
 #if BISEN_HARVEST_OFFLINE_VALIDATE
     am_util_stdio_printf(
         "BISen camera offline validation: AUTORUN=0 BTN0=one job"

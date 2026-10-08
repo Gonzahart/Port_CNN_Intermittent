@@ -59,9 +59,64 @@ extern "C" {
 #define PP_SIM_FLOOR_MV 5400u
 #endif
 
+// ---------------------------------------------------------------------------
+// VCAP READ POLICY (2026-10-07, docs/RUIC_VCAP_Read_Policy_Change_Brief.md)
+//
+// Defaults (1/1/1) keep the original behaviour: every reading decides on its
+// own and run_bisen_job() samples before every scheduler step.
+//
+// BISEN_HARVEST_STOP_CONFIRM / BISEN_HARVEST_RESUME_CONFIRM: consecutive valid
+// readings needed before compute stops (work -> wait) or before compute and
+// restore are allowed again (wait -> work). Rules in vcap_confirm.h. A reading
+// below the critical level (below_sleep_floor, 5.8 V) still stops at once.
+// While a stop is pending the CNN budget is the smallest band (100 units).
+//
+// BISEN_HARVEST_VCAP_SAMPLE_EVERY_STEPS (K): during the camera scan,
+// run_bisen_job() samples at most every K pixel steps. It always samples on a
+// job's first step, after a wait/resume, on a phase change, before every CNN
+// chunk (CNN keeps one reading per chunk), on every step while a stop is
+// pending, and before a BTN1 stop.
+// Safety budget: unobserved energy between readings is about K scheduler
+// steps. With ~3.6 ms pixel steps at ~10 mW (estimate, not measured),
+// K = 32 is ~1.2 mJ, ~18 mV of VCAP on 10 mF at 6.3 V, small against the
+// 6.2 -> 5.8 V band. Confirmation adds stop_n - 1 further readings, which are
+// taken every step once a stop is pending.
+#ifndef BISEN_HARVEST_STOP_CONFIRM
+#define BISEN_HARVEST_STOP_CONFIRM 1u
+#endif
+#ifndef BISEN_HARVEST_RESUME_CONFIRM
+#define BISEN_HARVEST_RESUME_CONFIRM 1u
+#endif
+#ifndef BISEN_HARVEST_VCAP_SAMPLE_EVERY_STEPS
+#define BISEN_HARVEST_VCAP_SAMPLE_EVERY_STEPS 1u
+#endif
+#if BISEN_HARVEST_STOP_CONFIRM < 1 || BISEN_HARVEST_RESUME_CONFIRM < 1
+#error "VCAP stop/resume confirmation needs at least one reading"
+#endif
+#if BISEN_HARVEST_VCAP_SAMPLE_EVERY_STEPS < 1
+#error "BISEN_HARVEST_VCAP_SAMPLE_EVERY_STEPS must be at least 1"
+#endif
+
 // Take a reading and run their policy on it. Call at phase boundaries and
 // periodically inside long phases -- not in a tight loop.
 void pp_sample(void);
+
+// Working, with fewer than BISEN_HARVEST_STOP_CONFIRM consecutive stop
+// readings so far. The caller samples every step until this clears.
+int  pp_stop_pending(void);
+
+// Session start: forget the confirmed energy state so the next valid reading
+// primes it (see vcap_confirm.h). Called before a continuous session is armed.
+void pp_confirm_forget(void);
+
+// Per-job counters for the SWO summary (never read inside timed regions):
+// policy readings taken; readings rejected by stop / resume confirmation;
+// critical readings that stopped work without confirmation.
+void     pp_job_stats_reset(void);
+uint32_t pp_job_vcap_samples(void);
+uint32_t pp_job_stop_rejected(void);
+uint32_t pp_job_resume_rejected(void);
+uint32_t pp_job_critical_bypasses(void);
 
 // Per-job observability for the camera-only high-sample filter. A physical
 // VCAP result at or above BISEN_CAMERA_VCAP_IGNORE_AT_MV is never fed into the

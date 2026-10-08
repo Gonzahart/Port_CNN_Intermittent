@@ -4,6 +4,110 @@ Append new entries at the top. Do not rewrite old entries except to correct a fa
 
 ---
 
+## 2026-10-08 — (Claude) Threshold verification rerun with the candidate VCAP read policy (C3/R3/K32, HVR4)
+
+User flashed `flash_harvest_rf_replay_vcap_policy.sh`, same setup and staircases as the 2026-10-07 baseline (CH2 DAC, CH4 VCAP, 100 nF pin cap, USB unplugged). DMM: arm 7.48, floors 5.94, tops 6.97 V; CH4 corrected by +5…+16 mV. Captures `threshold_test_run2_thr_{down,up}_c{1,2,3}`.
+
+| cycle | stop (nominal 6.20) | write at stop | resume (nominal 6.80) |
+|---|---|---|---|
+| c1 | 6.29 V | none | 6.77 V |
+| c2 | 6.24 V | none | 6.77 V |
+| c3 | 6.26 V | yes (2 samples) | 6.82 V |
+
+Baseline → candidate: stop mean 6.34 → 6.265 V (offset +0.14 → +0.065 V); resume mean 6.72 → 6.785 V (offset −0.08 → −0.015 V); effective hysteresis 0.27–0.44 → 0.47–0.56 V. One event per crossing, no chatter, no brownout; the only boot code is the power-on before BTN0 in c1_down. Staircase resolution is 0.05 V, so edges are known to roughly ±0.03 V. While working, VCAP-ADC (state 1) share fell from ≈52 % to 5–10 % (≈8–10 reads/s instead of ≈125/s) and the CNN period from 7.84 s to 4.1–6.0 s (shorter while descending from 7.5 V, ~5.5–6 s in the 6.8–7.0 V band; not yet explained). Interpretation: confirmation removed most noise-driven early triggering; the residual stop offset appears only under load (resume, taken while waiting, is within ±0.02 V), consistent with a load-dependent reading offset or VCAP dips during camera activity rather than random noise. Unverified hypothesis. V3 closed for the MP1584EN power path with this candidate policy; firmware still uncommitted.
+
+---
+
+## 2026-10-07 — (Claude) Review of the Claude Code VCAP read-policy change
+
+Read `vcap_confirm.c`, the `run_bisen_job()` diff and the candidate flash helper. Matches the brief: confirmation is a pure state machine behind the existing `pp_compute_allowed()/pp_restore_allowed()`, critical bypass immediate, invalid readings reset votes, stop-pending samples every step, scan sampled at most every K=32 pixel steps, CNN every chunk, fresh reading before any stop/checkpoint decision; flash helper differs from the baseline only by magic HVR4 and the three flags. No defects found by reading. Notes: (1) the candidate changes confirmation and polling together, so the rerun measures their combined effect; a paper ablation would need C3/R3/K1 and C1/R1/K32 builds. (2) The replay helpers build with SWO logging off, so the new per-frame counters will not print during the staircase; the scope is the measurement. (3) IS/OS candidates (distinct magics) are deferred until the policy is frozen. Hardware rerun pending.
+
+---
+
+## 2026-10-07 — (Claude Code) VCAP read policy: stop/resume confirmation + reduced scan polling (build + host tests only)
+
+**Scope:** implements `docs/RUIC_VCAP_Read_Policy_Change_Brief.md` in `apps/bisen_camera_harvest`, then ported identically to `apps/bisen_camera_harvest_IS` and `apps/bisen_camera_harvest_OS/bisen_camera_harvest_OS`. Repo at start: `main` @ `26f0a0aaf`, with pre-existing uncommitted CODEX_LOG/TASKS/`sdg1032x_charge_loop_modified.py` edits and untracked threshold traces/brief (left as found). **Not committed, not flashed. No hardware validation.**
+
+**Flags (module.mk + pp_defines; C defaults and `#error` guards in `power_policy.h`):** `BISEN_HARVEST_STOP_CONFIRM` (default 1), `BISEN_HARVEST_RESUME_CONFIRM` (default 1), `BISEN_HARVEST_VCAP_SAMPLE_EVERY_STEPS` (default 1). Defaults reproduce the original behaviour (see equivalence notes below).
+
+**Confirmation (`src/vcap_confirm.{h,c}`, new, pure C; wired in `power_policy.cc`):** `bisen_policy.cc` (verbatim copy) is untouched; `pp_sample()` still computes the raw decision exactly as before, then feeds compute/restore/below_sleep_floor to the confirmer. `pp_compute_allowed()` / `pp_restore_allowed()` return the confirmed flags (still gated by `s_valid`), so `run_bisen_job()`, `wait_for_energy()`, infer.c and scan.c have no logic changes. Decisions taken:
+- compute true→false after STOP_CONFIRM consecutive raw "not allowed"; compute and restore false→true after RESUME_CONFIRM consecutive raw "allowed" (the wait_for_energy(true) resume edge = N consecutive readings ≥ work500). Restore true→false is immediate (it only gates starting work, so dropping early can only delay a resume).
+- Critical bypass: `below_sleep_floor` (5.8 V) forces compute/restore false on the first reading.
+- Invalid reading (`s_valid=false`, incl. high-retry exhaustion): not a vote, **resets** all vote runs, confirmed flags unchanged; queries still answer "not allowed" while the latest reading is invalid (existing fail-safe wait, unchanged).
+- Session start = unprimed: first valid reading sets compute directly (same as the single-reading policy, so a fresh job still starts at ≥ 6.2 V); restore starts false and needs RESUME_CONFIRM readings (so a storage restore at boot also needs a confirmed 6.8 V). Unprimed at boot and via `pp_confirm_forget()` in `park_until_continuous_request()` (before each BTN0 session). Vote runs are cleared on every confirmed stop and on a confirmed rise; they are **not** cleared at each job (frame) start, because the energy state is continuous across frames. Per-job instrumentation counters reset at job start (`pp_job_stats_reset()`, next to `pp_high_sample_filter_reset()`).
+- While a stop is pending (1 ≤ votes < N): `pp_chunk_units()` returns the 100-unit budget (raw band is "wait" = 0); `pp_should_checkpoint()` uses confirmed compute, so no write while still working. Band selection 100/500/1000 otherwise stays on the raw reading.
+
+**Reduced polling (`run_bisen_job()`):** during SCAN, sample when ≥ K pixel steps since the last reading (stricter form of the brief's `% K`: never more than K steps unobserved). Always sampled: first step of a job, first step after a wait/resume, phase change, the scan→CNN transition step (`scan_complete()`), **every CNN chunk** (CNN keeps one reading per chunk), every step while a stop is pending, BTN1 pending, and a fresh reading is taken before any stop/checkpoint decision if the step was not sampled (defensive; unreachable by construction). Wait loop unchanged (250 ms, one reading per poll). Audit: the scan.c (~304/347/354) and infer.c (110/124/166/176) `pp_sample()` calls are self-driving only (`!WL_EXTERNAL_DRIVER` or reached only via `scan_full()`/`infer_classify()`/`infer_finish()`, which nothing calls in these apps); unchanged and would use the same confirmed API. Safety budget documented in `power_policy.h` (K=32 ≈ 1.2 mJ ≈ 18 mV on 10 mF at 6.3 V, estimate). Pixel ADC path, ADC config (AVG16/LPMODE1), calibration, thresholds, checkpoint format, MRAM sequence and state-DAC codes unchanged.
+
+**Instrumentation:** per job (= frame): `pp_sample()` count (incl. wait polls), stop readings rejected (stop votes below N, working only), resume readings rejected (raw resume-edge readings not yet confirmed, wait polls only), critical bypasses. Printed once per frame in `emit_result()` (SWO builds only) as `BISen camera VCAP read policy: ...`; boot banner prints the three settings. Nothing printed inside timed regions.
+
+**Helpers (repo root, new):** `build_harvest_rf_replay_vcap_policy.sh`, `flash_harvest_rf_replay_vcap_policy.sh` — copies of the baseline helpers plus `STOP_CONFIRM=3 RESUME_CONFIRM=3 VCAP_SAMPLE_EVERY_STEPS=32`, magic `0x48565234` (HVR4; session HVC4), BASE `bisen_camera_harvest_rf_replay_vcap_policy_c3r3k32_gpio17_2026-10-07`. GPIO17 pins, anchors 476/655 and thresholds 5.8/6.2/6.8/7.3 V unchanged. No IS/OS candidate helpers (not requested); a candidate image of those packages needs a distinct magic.
+
+**Builds (arm-none-eabi-gcc 15.3.1, R4.5.0, `make -B`), all exit 0:**
+| build | bin SHA-256 | text B | app warnings |
+|---|---|---|---|
+| baseline replay recipe, unmodified source (reference) | `29a90930…07c74f` | 104,868 | none |
+| (a) replay recipe, new flags at defaults | `2b649c67…e2c6d9` | 105,680 | none (identical warning set to baseline) |
+| (b) `build_harvest_rf_replay_vcap_policy.sh` | `0b9e0def…a53e354d55` | 105,796 | none |
+| IS replay recipe (IS01), defaults / candidate flags | `5c1986cb…` / `07d89f72…` | 116,588 / 116,700 | none |
+| OS replay recipe (OS01), defaults / candidate flags | `0bb2d7e0…` / `9b65419e…` | 113,148 / 113,260 | none |
+| original bare `make` (calibration mode) | `fbd5e05d…` | 28,428 | 2 pre-existing `g_user_stop_*` unused (HEAD file gives the same two) |
+
+`make -n` confirms `-DBISEN_HARVEST_{STOP,RESUME}_CONFIRM=1u/3u` and `..._SAMPLE_EVERY_STEPS=1u/32u` reach the compiler. Baseline/(a)/IS/OS builds were run with `make` directly (not the baseline helper), so no baseline archive was written; the candidate helper created `firmware_builds/` (`*.bin` gitignored; `.axf/.map/.sha256/.config.txt` untracked). Default-build binaries differ from baseline because code was added; equivalence of default behaviour is argued from code (K=1 → every iteration samples exactly once; N=1 → confirmed flags = raw flags) and checked by the host test, not by hardware.
+
+**Host tests:** new `tests/vcap_confirm_test.c` (all three apps; `cc -std=c99 -Wall -Wextra -Werror`, also UBSan): N=1 ≡ raw over 100k random readings incl. invalid/forget; single outlier ignored (stop and resume); exactly N consecutive switch (incl. 2/4 asymmetric); restore drops immediately; invalid readings reset runs and never prime; critical bypass immediate (incl. while a stop is pending); votes reset on stop/resume/forget. **PASS** ×3. Existing `harvest_policy_test` and `session_journal_test` (original app) PASS. The run-loop cadence itself is not host-tested (HAL-bound).
+
+**Not done / still required:** flashing and the before/after 3-cycle staircase (TASKS item); measured frame period, VCAP-ADC share and edge positions; IS/OS candidate images. Expected effect (estimate from code, not measured): scan readings ~1,024 → ~33 per frame at K=32.
+
+---
+
+## 2026-10-07 — (Claude) Threshold verification baseline complete (3 automated cycles)
+
+Captures (user, scope_capture_plot memory/full record, 0.4–0.67 ms/sample): `v14_vcap_dac_01` (c1 down), `threshold_test_02` (c1 up + manual), `threshold_test_thr_down_c2_down`, `threshold_test_thr_up_c2`, `threshold_test_thr_down_c3`, `threshold_test_thr_up_c3`. CH4 corrected with end-of-run DMM readings (offsets +6…+17 mV).
+
+| cycle | stop VCAP (nominal 6.20) | MRAM write at stop | resume VCAP (nominal 6.80) |
+|---|---|---|---|
+| c1 | 6.38 V | none (no dirty progress) | 6.645 V |
+| c2 | 6.335 V | yes, 2 samples (≈0.5–1.6 ms) | 6.73 V |
+| c3 | 6.29 V | yes, 2 samples (≈0.7–2.0 ms) | 6.775 V |
+| manual | ≈6.34 V | yes, 5 samples (≈2.0–2.4 ms) | — |
+
+Stop mean 6.34 V (+0.09…+0.18 V early), resume mean 6.72 V (−0.03…−0.16 V early); effective hysteresis 0.27–0.44 V instead of 0.60 V. Every crossing produced exactly one stop or resume: no chatter, no repeated checkpoints, no brownout/boot/restore codes. Against the pre-agreed limits (no stop above ~6.4 V, resume by 6.9 V, no repeats) the policy passes; against ±50 mV it does not, as expected from single-reading decisions with heavy-tailed noise (~125 reads/s while working, 4 reads/s while waiting). Early stop costs ≈ ½C(6.34²−6.20²) ≈ 9 mJ of usable reservoir energy per discharge on 10 mF. Firmware unchanged. Proposed next (needs authorization): consecutive-reading confirmation for stop/resume and reduced VCAP polling, then rerun this exact staircase for a before/after comparison.
+
+---
+
+## 2026-10-07 — (Claude) Threshold test cycle 1, up pass + manual probing (user capture `threshold_test_02`)
+
+DMM 6.95 V at the end vs CH4 6.942 V (offset ≈ −8 mV). First ~130 s were manual FG changes by the user.
+- **Automated up pass: resume at VCAP ≈ 6.645 V** (182.0 s, ~2 s into the 6.64 V step), ≈ 0.155 V below the 6.80 V work500 edge. Wait loop = one policy reading every 0.25 s; needed reading ≈ +14 codes above the mean. The 2026-10-07 A/B records contain occasional +13…+17-code outliers (≈0.5–1 % of readings), so heavy-tailed single readings explain both edges moving inward.
+- **Manual stop at ≈ 6.34 V (101.55 s) with an MRAM checkpoint:** state 4 for 5 consecutive samples (≈ 2.0–2.4 ms at 0.4 ms/sample), then sleep; state 5 too short to sample. First observed production checkpoint write duration on this setup. The VCAP step from ~20 µJ is ≈ 0.3 mV, below CH4 resolution, so energy needs current measurement (V14).
+- **Manual dip to VCAP 4.73 V while waiting:** the board kept its 0.25 s wait checks, no reset/boot code. Under sleep load the MP1584EN path stays up at ≥ 4.73 V; worst-case (working) floor still unmeasured.
+- Manual resume at ≈ 6.70 V (64.4 s) during a fast ramp; not used as a threshold result.
+
+**Effective edges so far:** stop 6.34–6.38 V (nominal 6.20), resume 6.645–6.70 V (nominal 6.80): the 0.6 V hysteresis band shrinks to ~0.3 V. Cycles 2–3 pending for repeatability. Candidate fix (needs authorization): require 2–3 consecutive readings past an edge before stopping/resuming, and/or more ADC averaging.
+
+---
+
+## 2026-10-07 — (Claude) Threshold test cycle 1, down pass (user capture `v14_vcap_dac_01`)
+
+**Setup:** `flash_harvest_rf_replay.sh` image (original app, GPIO17, 476/655 anchors, 100 nF pin cap), CH2 state DAC, CH4 VCAP, grounds FG-side, USB unplugged; `thr arm` then `thr down`; scope_capture_plot full record, 280 s at 2.5 kS/s. DMM 7.46 V (arm end) and 5.94 V (floor) vs CH4 7.454 / 5.935 V: CH4 agrees within ~6 mV.
+
+**Results:**
+- BTN0 at 52.85 s; working until **141.68 s, when the board stopped at VCAP ≈ 6.38 V** (third plateau, after ~9.6 s there), i.e. ~0.18 V above the 6.20 V work100 edge. Expected codes: mean ≈ 542 vs threshold ≈ 527 (−15 codes ≈ −3.4σ of the 4.5-code policy-reading noise); with ~125 VCAP reads/s while working (~1,200 reads on that plateau) one such low reading is likely. Interpretation: single-reading decisions plus very frequent polling make the effective stop edge sit ~0.15–0.2 V above the nominal threshold under load.
+- **No MRAM checkpoint at the stop:** no sustained state 4→5 (isolated single-sample 4/5 codes are DAC edge glitches). The stop came ~0.9 s into a new frame's scan; `checkpoint_needed()` requires dirty progress and a generation change, so a wait without a write is consistent with the code. V14 MRAM captures need stops during dirty CNN/scan progress.
+- After the stop: waiting only, VCAP ADC check every 0.25 s (4.0 ms each); no repeated stops and no brownout down to 5.94 V.
+- **VCAP polling confirmed on hardware:** while working, CH2 alternates state 1 (VCAP ADC, median 4.0 ms) and state 2 (pixel, 3.6 ms); ≈1,017 VCAP reads per frame, frame period 7.84 s, CNN bursts ≈ 50–100 ms. VCAP reads take ≈ 52 % of working time (46.5 s of 88.8 s). Energy share still needs current data, but this supports the earlier ~93 % energy estimate's premise.
+
+---
+
+## 2026-10-07 — (Claude) Threshold-verification FG staircase (tooling only)
+
+**Superseded the same day at the user's request (separate runs to limit scope memory):** the single 970 s file moved to `traces/threshold_test/superseded_threshold_staircase_3cycles.txt`. New run files in `traces/rf_replay/`: `thr_arm.txt` (6 × 7.97 V, 60 s), `thr_down.txt` (VCAP 6.60, 6.50→6.00 by 0.05 V, 30 s floor; 14 steps, 140 s), `thr_up.txt` (6.45→7.00 by 0.05 V, 20 s hold; 14 steps, 140 s). Added `--keep-output-on` to `tools/sdg1032x_charge_loop_modified.py` trace-loop (DC mode): skips the initial OUTP OFF and leaves the output on at the last level after a normal finish, so runs chain without VCAP dropping; Ctrl-C/errors still turn it off. Checked with `--dry-run`: no `OUTP OFF` with the flag, three without. Original entry follows.
+
+Added `apps/bisen_camera_harvest/traces/rf_replay/threshold_staircase_3cycles.txt` for the existing `sdg1032x_charge_loop_modified.py trace-loop` (DC/raw mode, `--steps 97 --charge-s 970 --trace-max-vpp 8.0 --max-command-v 8.0`). 10 s per command; FG = target VCAP + 0.47 V (user-measured diode/source drop 0.42–0.51 V). 40 s arm at ~7.5 V, then 3 × 310 s cycles: down 6.50→6.00 V in 0.05 V steps with a 30 s floor, up 6.45→7.00 V in 0.05 V steps, 50 s hold at 7.00 V for saving the scope capture. Verified with `preview-trace` (97 steps, 6.47–7.97 V commands, values pass through unchanged). Probe plan: CH2 state-DAC junction, CH4 VCAP (reservoir +), both grounds on the FG side; CH1/CH3 off. Not yet run on hardware.
+
+---
+
 ## 2026-10-07 — (Claude) GPIO17 pin capacitor A/B: 10 nF vs 100 nF
 
 **User bench:** diag image (`ADC_DIAG_COMPARE=1 ADC_DIAG_DEEP=1`, GPIO17), scope off, USB unplugged for captures, VCAP 6.20 V (KM100) for every press. 10 nF: 8 records (first attempt lost; second pasted from terminal). 100 nF: 7 records. Tee files were empty (SWO viewer output is block-buffered into a pipe and lost on Ctrl-C); use `script -q <file> make view ...` instead. **Pressing RESET erased the retained SRAM log**, contrary to the banner text "a reset is tolerated while VDD remains powered"; do not press RESET before a readout.

@@ -168,3 +168,12 @@ follow session and retirement writes, so it alone is not a workload checkpoint
 count. See `docs/RUIC_STATE_DAC.md` for the mapping, MSP430 comparison, wait
 behavior and restore-energy instrumentation limitation. Rebuild and flash to
 apply this change; existing captures/binaries retain their previous behavior.
+
+## VCAP read policy flags (2026-10-07)
+
+Ported unchanged from `apps/bisen_camera_harvest` (see its README section of the
+same name): `BISEN_HARVEST_STOP_CONFIRM`, `BISEN_HARVEST_RESUME_CONFIRM` and
+`BISEN_HARVEST_VCAP_SAMPLE_EVERY_STEPS`, all defaulting to 1 (original
+behaviour). The candidate root helpers build only the original app; a
+candidate image of this package should pass the three flags and a distinct
+`BISEN_HARVEST_CHECKPOINT_MAGIC`. Built and host-tested only; not flashed.

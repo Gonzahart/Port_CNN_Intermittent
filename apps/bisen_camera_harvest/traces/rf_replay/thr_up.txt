@@ -1,0 +1,18 @@
+# Threshold verification (work100 checkpoint 6.20 V, work500 resume 6.80 V), UP run: 6.45 -> 7.00 V in 0.05 V steps, 20 s hold. Ends holding ~7.0 V (working).
+# One FG DC command per line, 10 s each. FG = target VCAP + 0.47 V (measured drop 0.42-0.51 V).
+# Run with --keep-output-on so the FG holds the last level after the run.
+# --steps 14 --charge-s 140
+6.92
+6.97
+7.02
+7.07
+7.12
+7.17
+7.22
+7.27
+7.32
+7.37
+7.42
+7.47
+7.47
+7.47

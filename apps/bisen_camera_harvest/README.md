@@ -346,3 +346,34 @@ follow session and retirement writes, so it alone is not a workload checkpoint
 count. See `docs/RUIC_STATE_DAC.md` for the mapping, MSP430 comparison, wait
 behavior and restore-energy instrumentation limitation. Rebuild and flash to
 apply this change; existing captures/binaries retain their previous behavior.
+
+## VCAP read policy: confirmation and reduced scan polling (2026-10-07)
+
+Three build flags, all defaulting to the original behaviour (one reading
+decides; a VCAP reading before every scheduler step):
+
+| Flag | Default | Effect when > 1 |
+|---|---|---|
+| `BISEN_HARVEST_STOP_CONFIRM` | 1 | Stop (work → wait) only after N consecutive valid readings below work100. While a stop is pending, work continues on the 100-unit budget and every step is sampled. |
+| `BISEN_HARVEST_RESUME_CONFIRM` | 1 | Resume (wait → work) only after N consecutive valid readings at or above the resume edge. |
+| `BISEN_HARVEST_VCAP_SAMPLE_EVERY_STEPS` | 1 | During the camera scan, sample at most every K pixel steps. The first step of a job, the first step after a wait, phase changes, every CNN chunk, pending stops and BTN1 stops are always sampled. |
+
+A reading below the critical level (5.8 V) stops work at once, without
+confirmation. Invalid readings are not votes and restart any partial run; as
+before, the scheduler waits while the latest reading is invalid. Rules and
+rationale: `src/vcap_confirm.h` and `src/power_policy.h`;
+host test: `tests/vcap_confirm_test.c`. ADC configuration, calibration,
+thresholds, checkpoint format and MRAM write sequence are unchanged.
+
+Candidate replay image (3/3/32, checkpoint identity `HVR4`, otherwise the
+same GPIO17 anchors, pins and thresholds as the baseline helpers):
+
+```sh
+./build_harvest_rf_replay_vcap_policy.sh
+./flash_harvest_rf_replay_vcap_policy.sh
+```
+
+The SWO summary (J-Link builds with `BISEN_ENABLE_SWO_LOGGING=1`) adds one
+`VCAP read policy:` line per frame: samples, stop/resume readings rejected by
+confirmation, and critical bypasses. Built and host-tested only; the
+before/after threshold staircase on hardware is still pending.

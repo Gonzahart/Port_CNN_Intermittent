@@ -234,13 +234,16 @@ def set_offset(inst, channel, offset_v):
     inst.write(f"C{channel}:BSWV OFST,{offset_v:.12g}")
 
 
-def configure_dc_wave(inst, channel, dc_v, load):
+def configure_dc_wave(inst, channel, dc_v, load, keep_output_on=False):
     """Configure the output as a DC level.
 
     Siglent SDG1000X generators support a DC basic waveform. In this mode the
     trace value is treated as the output voltage level, not as Vpp.
+    keep_output_on skips the output-off write so a run can be chained onto a
+    previous run's held level without dropping VCAP.
     """
-    inst.write(output_command(channel, "OFF", load))
+    if not keep_output_on:
+        inst.write(output_command(channel, "OFF", load))
     inst.write(f"C{channel}:BSWV WVTP,DC,OFST,{dc_v:.12g}")
 
 
@@ -249,7 +252,8 @@ def configure_trace_wave(inst, args, initial_level):
     level = max(0.0, initial_level)
 
     if args.trace_output_mode == "dc":
-        configure_dc_wave(inst, args.channel, args.offset + level, args.load)
+        configure_dc_wave(inst, args.channel, args.offset + level, args.load,
+                          keep_output_on=getattr(args, "keep_output_on", False))
     elif args.trace_output_mode == "unipolar-sine":
         # Output range is approximately offset to offset + level.
         configure_basic_wave(
@@ -650,6 +654,7 @@ def run_trace_loop(args):
             set_output(inst, args.channel, False, args.load)
 
         cycle = 0
+        completed = False
 
         try:
             while args.cycles == 0 or cycle < args.cycles:
@@ -701,6 +706,12 @@ def run_trace_loop(args):
                 if remaining_s > 0:
                     time.sleep(remaining_s)
 
+                last_cycle = args.cycles != 0 and cycle >= args.cycles
+                if args.keep_output_on and last_cycle:
+                    print(f"cycle={cycle} trace output end: output stays ON at {amp_values[-1]:g} V "
+                          "(--keep-output-on)", flush=True)
+                    completed = True
+                    break
                 print(f"cycle={cycle} trace output end: output=off rest_s={args.rest_s:g}", flush=True)
                 set_output(inst, args.channel, False, args.load)
                 if log_writer:
@@ -730,7 +741,8 @@ def run_trace_loop(args):
             raise
 
         finally:
-            set_output(inst, args.channel, False, args.load)
+            if not (args.keep_output_on and completed):
+                set_output(inst, args.channel, False, args.load)
 
             if log_handle:
                 log_handle.close()
@@ -864,6 +876,15 @@ def main():
     )
     trace_loop_parser.add_argument("--min-step-s", type=parse_float, default=0.02, help="Minimum allowed SCPI amplitude update interval")
     trace_loop_parser.add_argument("--log-csv", help="Save a CSV log of commanded amplitude updates")
+    trace_loop_parser.add_argument(
+        "--keep-output-on",
+        action="store_true",
+        help=(
+            "DC mode: do not switch the output off at the start, and leave it on at the "
+            "last trace level after a normal finish, so separate runs can be chained "
+            "without dropping VCAP. Ctrl-C or an error still turns the output off."
+        ),
+    )
 
     args = parser.parse_args()
 
